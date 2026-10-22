@@ -169,9 +169,16 @@ def mutate(pop: NDArray[np.float64], mutation_rate: float) -> NDArray[np.float64
     return mutated
 
 
-def main() -> int:
+def run_GA_training(
+        population_size: int,
+        num_generations: int,
+        crossover_point: int,
+        mutation_rate: float
+) -> NDArray[np.float64]:
     """
-    Intended Flow:
+    Runs the actual genetic algorithim training using the input control variables.
+
+    Follows the general GA Flow:
     1) Initialise Population
     2) Training Loop (until terminating condition)
         2.a) Evaluate Population Fitness
@@ -179,19 +186,18 @@ def main() -> int:
         2.c) Apply Crossover -- generate new population
         2.d) Mutate new population
         2.e) pop = new_pop
-    3) Evaluate final population fitness & display results
+    3) Return all generations for exterior data analysis
+
+    Returns:
+        generations: NDArray[np.float64]; shape = (num_generations+1, population_size, NUM_FRAMES, NUM_LEGS, NUM_LEG_SEGS)
+            - Every generation of this training run in order
     """
-    # 0) Define control variables
-    #! Note: Temporary stand-in values for now
-    population_size = 20
-    num_generations = 20
-    crossover_point = 150
-    mutation_rate = 0.01
 
     # 1) Initialise Population
     pop = init_population(population_size)
 
     # Extra step: Store all generations so we can do data analysis on them later
+    # num_generations+1 as initial population is considered generation 0
     generations = np.empty((num_generations + 1,) + pop.shape)
     generations[0] = pop
 
@@ -216,15 +222,22 @@ def main() -> int:
         pop = new_pop
         generations[gen] = pop
 
-    # 3) Evaluate final population fitness & display results
-    final_fitness = evaluate_fitness(pop)
-    best, average = np.max(final_fitness), np.mean(final_fitness)
-    print(
-        f"Final population fitness: {final_fitness}; average: {average}; best: {best}"
+    return generations
+
+def main() -> int:
+    #! Note: Temporary stand-in values for now
+    generations = run_GA_training(
+        population_size=20,
+        num_generations=20,
+        crossover_point=150,
+        mutation_rate=0.01
     )
 
-    return 0
+    final_fitness = evaluate_fitness(generations[-1])
+    best, average = np.max(final_fitness), np.mean(final_fitness)
+    print(f"Best fitness: {best}; average_fitness: {average};")
 
+    return 0
 
 if __name__ == "__main__":
     sys.exit(main())
