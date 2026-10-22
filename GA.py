@@ -3,6 +3,7 @@ import sys
 import random
 
 from numpy.typing import NDArray
+from typing import Callable
 
 NUM_FRAMES = 300
 NUM_LEGS = 8
@@ -74,7 +75,7 @@ def evaluate_fitness(pop: NDArray[np.float64]) -> NDArray[np.float64]:
     return fitness
 
 
-def selection_method(
+def tournament_selection(
     pop: NDArray[np.float64], fitness: NDArray[np.float64], n: int
 ) -> NDArray[np.float64]:
     """
@@ -111,34 +112,31 @@ def selection_method(
 
 
 def crossover(
-    parents: NDArray[np.float64], crossover_point: int
+    parents: NDArray[np.float64], crossover_rate: float
 ) -> NDArray[np.float64]:
     """
-    Apply crossover on the selected parent population, resulting in our new population.
+    Swap each pair's alleles independently with the given probability.
 
     Args:
-        parents: NDArray[np.float64]; shape = (n, NUM_FRAMES, NUM_LEGS, NUM_LEG_SEGS)
-            - The individuals selected for crossover by our selection algorithm
-        crossover_point: int
-            - The index at which the crossover occurs. In the second dimension (where in 300 frames)
+        parents: Population with shape (n, frames, legs, joints).
+        crossover_rate: Probability of swapping each allele, between 0 and 1.
 
     Returns:
-        offspring: NDArray[np.float64]; shape = (parents.shape[0], NUM_FRAMES, NUM_LEGS, NUM_LEG_SEGS)
-            - The new population generated from applying the crossover to the parents
+        Offspring with the same shape as parents. If the population size is
+        odd, the final individual is copied unchanged.
     """
-    if not 0 <= crossover_point <= parents.shape[1]:
-        raise ValueError("crossover_point must be between 0 and the number of frames")
+    if not 0 <= crossover_rate <= 1:
+        raise ValueError("crossover_rate must be between 0 and 1")
 
+    rng = np.random.default_rng()
     offspring = parents.copy()
 
     for i in range(0, len(parents) - 1, 2):
-        offspring[i, crossover_point:] = parents[i + 1, crossover_point:]
-        offspring[i + 1, crossover_point:] = parents[i, crossover_point:]
+        swap_mask = rng.random(parents.shape[1:]) < crossover_rate
 
-    if offspring.shape != parents.shape:
-        raise ValueError(
-            f"Generated Offspring wrong shape! Expected: {parents.shape}; Actual: {offspring.shape};"
-        )
+        offspring[i] = np.where(swap_mask, parents[i + 1], parents[i])
+        offspring[i + 1] = np.where(swap_mask, parents[i], parents[i + 1])
+
     return offspring
 
 
@@ -172,8 +170,9 @@ def mutate(pop: NDArray[np.float64], mutation_rate: float) -> NDArray[np.float64
 def run_GA_training(
         population_size: int,
         num_generations: int,
-        crossover_point: int,
-        mutation_rate: float
+        crossover_rate: float,
+        mutation_rate: float,
+        selection_method: Callable[[NDArray[np.float64], NDArray[np.float64], int], NDArray[np.float64]],
 ) -> NDArray[np.float64]:
     """
     Runs the actual genetic algorithim training using the input control variables.
@@ -213,7 +212,7 @@ def run_GA_training(
         selected_parents = selection_method(pop, population_fitness, n=population_size)
 
         # 2.c) Apply Crossover
-        offspring = crossover(selected_parents, crossover_point)
+        offspring = crossover(selected_parents, crossover_rate)
 
         # 2.d) Mutate new population
         new_pop = mutate(offspring, mutation_rate)
@@ -229,8 +228,9 @@ def main() -> int:
     generations = run_GA_training(
         population_size=20,
         num_generations=20,
-        crossover_point=150,
-        mutation_rate=0.01
+        crossover_point=0.1,
+        mutation_rate=0.01,
+        selection_method=tournament_selection
     )
 
     final_fitness = evaluate_fitness(generations[-1])
