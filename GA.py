@@ -1,20 +1,24 @@
-import math
 import numpy as np
 import sys
 import random
 
-from numpy.typing import ArrayLike, NDArray
+from numpy.typing import NDArray
 
 NUM_FRAMES = 300
 NUM_LEGS = 8
 NUM_LEG_SEGS = 3
 
-#todo: Update to whatever angles we decide on for this
-MIN_JOINT_ANGLE = math.pi / 6  # 30deg
-MAX_JOINT_ANGLE = math.pi / 2  # 90deg
+RIGHT_MIN = [-1.57, -1.57, -2.0]
+RIGHT_MAX = [1.57, 1.57, 1.0]
 
+# knee: flipped because results from webbots were flipped
+LEFT_MIN = [-1.57, -1.57, -1.0]
+LEFT_MAX = [1.57, 1.57, 2.0]
 
-rng = np.random.default_rng()
+# L1, L2, L3, L4, R4, R3, R2, R1 : Based on the controller
+MIN_JOINT_ANGLES = np.array([LEFT_MIN] * 4 + [RIGHT_MIN] * 4)
+MAX_JOINT_ANGLES = np.array([LEFT_MAX] * 4 + [RIGHT_MAX] * 4)
+
 
 #! Assuming float64, we may be able to optimise this
 def init_population(n: int) -> NDArray[np.float64]:
@@ -48,25 +52,13 @@ def init_population(n: int) -> NDArray[np.float64]:
     between the MIN_JOINT_ANGLE and MAX_JOINT_ANGLE control variables.
     It then asserts the population matches the expected shape and returns it
     """
-    expected_shape = (n, NUM_FRAMES, NUM_LEGS, NUM_LEG_SEGS)
-    init_population = np.empty(expected_shape, dtype=np.float64)
-    for i in range(n):
+    rng = np.random.default_rng()
+    init_population = rng.uniform(
+        MIN_JOINT_ANGLES, MAX_JOINT_ANGLES, size=(n, NUM_FRAMES, NUM_LEGS, NUM_LEG_SEGS)
+    )
 
-        individual = np.empty((NUM_FRAMES, NUM_LEGS, NUM_LEG_SEGS), dtype=np.float64)
-        for j in range(NUM_FRAMES):
-            rand_spider = np.array([
-                rng.uniform(MIN_JOINT_ANGLE, MAX_JOINT_ANGLE, NUM_LEG_SEGS)
-                for _ in range(NUM_LEGS)
-            ], dtype=np.float64)
-            individual[j] = rand_spider
-
-        init_population[i] = individual
-
-    if init_population.shape != expected_shape:
-        raise ValueError(
-            f"Population initialised to wrong shape! Expected: {expected_shape}; Actual: {init_population.shape};"
-        )
     return init_population
+
 
 def evaluate_fitness(pop: NDArray[np.float64]) -> NDArray[np.float64]:
     """
@@ -77,12 +69,14 @@ def evaluate_fitness(pop: NDArray[np.float64]) -> NDArray[np.float64]:
 
     if len(fitness) != len(pop):
         raise ValueError(
-            f"Fitness shape `{fitness.shape}` does not match 1D population shape: `{(pop.shape[0]),}`"
+            f"Fitness shape `{fitness.shape}` does not match 1D population shape: `{((pop.shape[0]),)}`"
         )
     return fitness
 
+
 def selection_method(
-        pop: NDArray[np.float64], fitness: NDArray[np.float64], n: int) -> NDArray[np.float64]:
+    pop: NDArray[np.float64], fitness: NDArray[np.float64], n: int
+) -> NDArray[np.float64]:
     """
     Uses a selection algorithm to select which individuals of the population will proceed to
     crossover.
@@ -100,7 +94,9 @@ def selection_method(
     Returns:
         selected_parents: NDArray[np.float64]; shape = (n, NUM_FRAMES, NUM_LEGS, NUM_LEG_SEGS)
     """
-    selected_parents = np.empty((n,) + pop.shape[1:], dtype=np.float64)  # (n,) is python 1-tuple weirdness
+    selected_parents = np.empty(
+        (n,) + pop.shape[1:], dtype=np.float64
+    )  # (n,) is python 1-tuple weirdness
     for i in range(n):
         idx1 = random.randrange(fitness.shape[0])
         idx2 = random.randrange(fitness.shape[0])
@@ -114,7 +110,9 @@ def selection_method(
     return selected_parents
 
 
-def crossover(parents: NDArray[np.float64], crossover_point: int) -> NDArray[np.float64]:
+def crossover(
+    parents: NDArray[np.float64], crossover_point: int
+) -> NDArray[np.float64]:
     """
     Apply crossover on the selected parent population, resulting in our new population.
 
@@ -198,8 +196,9 @@ def main() -> int:
     generations[0] = pop
 
     # 2) Training Loop
-    for gen in range(1, num_generations + 1):  # +1 because the initial population is gen 0
-
+    for gen in range(
+        1, num_generations + 1
+    ):  # +1 because the initial population is gen 0
         # 2.a) Evaluate Population Fitness
         population_fitness = evaluate_fitness(pop)
 
@@ -220,9 +219,12 @@ def main() -> int:
     # 3) Evaluate final population fitness & display results
     final_fitness = evaluate_fitness(pop)
     best, average = np.max(final_fitness), np.mean(final_fitness)
-    print(f"Final population fitness: {final_fitness}; average: {average}; best: {best}")
+    print(
+        f"Final population fitness: {final_fitness}; average: {average}; best: {best}"
+    )
 
     return 0
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     sys.exit(main())
