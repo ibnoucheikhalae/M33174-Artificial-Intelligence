@@ -26,9 +26,9 @@ import pickle
 
 from typing import Dict, Tuple
 from numpy.typing import NDArray
-from GA import run_GA_training, tournament_selection
+from GA import run_GA_training, tournament_selection, roulette_selection
 
-SELECTION_METHODS = [tournament_selection]
+SELECTION_METHODS = [tournament_selection, roulette_selection]
 
 CO_RATES = [0.1, 0.2, 0.4, 0.6, 0.8]
 

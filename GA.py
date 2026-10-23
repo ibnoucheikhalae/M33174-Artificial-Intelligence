@@ -74,15 +74,53 @@ def evaluate_fitness(pop: NDArray[np.float64]) -> NDArray[np.float64]:
         )
     return fitness
 
+def roulette_selection(
+        pop: NDArray[np.float64], fitness: NDArray[np.float64], n: int
+) -> NDArray[np.float64]:
+    """
+    Uses roulette selection to select which individuals of the population will proceed to
+    crossover.
+
+    Args:
+        pop: NDArray[np.float64]; shape = (population_size, NUM_FRAMES, NUM_LEGS, NUM_LEG_SEGS)
+            - The population to select from
+        fitness: NDArray[np.float64]; shape = (population_size)
+            - The fitness values of the individuals within that population
+        n: int;
+            - The number of individuals selected
+
+    Returns:
+        selected_parents: NDArray[np.float64]; shape = (n, NUM_FRAMES, NUM_LEGS, NUM_LEG_SEGS)
+    """
+    selected_parents = np.empty(
+        (n,) + pop.shape[1:], dtype=np.float64
+    )
+
+    normalised = fitness / fitness.sum()
+    cumulative_fitness = np.cumsum(normalised)
+    cumulative_fitness[-1] = 1.0  # Force last value to 1 to avoid 0.999999...
+
+    for i in range(n):
+        rand_n = random.uniform(0, 1)
+        individual_n = 0
+        for fitvalue in cumulative_fitness:
+            if rand_n <= fitvalue:
+                selected_parents[i] = pop[individual_n]
+                break
+            individual_n += 1
+
+    if selected_parents.shape != (n, NUM_FRAMES, NUM_LEGS, NUM_LEG_SEGS):
+        raise ValueError(
+            f"Selected Parents wrong shape! Expected: {(n, NUM_FRAMES, NUM_LEGS, NUM_LEG_SEGS)}; Actual: {selected_parents.shape};"
+        )
+    return selected_parents
 
 def tournament_selection(
     pop: NDArray[np.float64], fitness: NDArray[np.float64], n: int
 ) -> NDArray[np.float64]:
     """
-    Uses a selection algorithm to select which individuals of the population will proceed to
+    Uses tournament selection to select which individuals of the population will proceed to
     crossover.
-
-    ! Note: Does tournament selection as stub for now.
 
     Args:
         pop: NDArray[np.float64]; shape = (population_size, NUM_FRAMES, NUM_LEGS, NUM_LEG_SEGS)
