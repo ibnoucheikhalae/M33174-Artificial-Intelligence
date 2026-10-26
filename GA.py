@@ -20,6 +20,10 @@ LEFT_MAX = [1.57, 1.57, 2.0]
 MIN_JOINT_ANGLES = np.array([LEFT_MIN] * 4 + [RIGHT_MIN] * 4)
 MAX_JOINT_ANGLES = np.array([LEFT_MAX] * 4 + [RIGHT_MAX] * 4)
 
+# Radians, taken from the smallest scalar values in angle min/max's -- this might be wrong
+MUTATION_RANGE_STEP_MIN = 1
+MUTATION_RANGE_STEP_MAX = 2
+
 
 #! Assuming float64, we may be able to optimise this
 def init_population(n: int) -> NDArray[np.float64]:
@@ -178,7 +182,11 @@ def crossover(
     return offspring
 
 
-def mutate(pop: NDArray[np.float64], mutation_rate: float) -> NDArray[np.float64]:
+def mutate(
+    pop: NDArray[np.float64],
+    mutation_rate: float,
+    mutation_std: float
+) -> NDArray[np.float64]:
     """
     Mutate a population. Each individual has a mutation_rate% of being mutated.
 
@@ -187,22 +195,34 @@ def mutate(pop: NDArray[np.float64], mutation_rate: float) -> NDArray[np.float64
             - The population to mutate
         mutation_rate: float
             - The percentage chance per individual for mutation (between 0 and 1)
+        mutation_std: float
+            - The standard deviation of mutation steps in radians
 
     Returns:
         mutated: NDArray[np.float64]; shape = (population_size, NUM_FRAMES, NUM_LEGS, NUM_LEG_SEGS)
             - The mutated population
     """
-    mutated = pop
-    for individual in mutated:
-        if random.random() >= mutation_rate:
-            #! Stub method. Do not mutate for now
-            pass
 
-    if mutated.shape != pop.shape:
-        raise ValueError(
-            f"Mutated Population wrong shape! Expected: {pop.shape}; Actual: {mutated.shape};"
-        )
-    return mutated
+    if not 0 <= mutation_rate <= 1:
+        raise ValueError("mutation_rate must be between 0 and 1")
+    if not np.isfinite(mutation_std) or mutation_std < 0:
+        raise ValueError("mutation_std must be finite and non-negative")
+
+    rng = np.random.default_rng()
+
+    # Generate one random number per gene.
+    # Comparing against mutation rate gives a boolean mask: True means that gene mutates
+    mask = rng.random(pop.shape) < mutation_rate
+
+    # Generate one Gaussian step per gene (normal), centered on 0 to allow for positive or negative
+    # mutation_std controls the typical step size in radians
+    steps = rng.normal(0.0, mutation_std, size=pop.shape)
+
+    # Apply the step wherever mask is true, use 0.0 elsewhere
+    mutated = pop + np.where(mask, steps, 0.0)
+
+    # Clamp each angle to its joints valid range
+    return np.clip(mutated, MIN_JOINT_ANGLES, MAX_JOINT_ANGLES)
 
 
 def run_GA_training(
@@ -210,6 +230,7 @@ def run_GA_training(
         num_generations: int,
         crossover_rate: float,
         mutation_rate: float,
+        mutation_std: float,
         selection_method: Callable[[NDArray[np.float64], NDArray[np.float64], int], NDArray[np.float64]],
 ) -> NDArray[np.float64]:
     """
@@ -253,7 +274,7 @@ def run_GA_training(
         offspring = crossover(selected_parents, crossover_rate)
 
         # 2.d) Mutate new population
-        new_pop = mutate(offspring, mutation_rate)
+        new_pop = mutate(offspring, mutation_rate, mutation_std)
 
         # 2.e)
         pop = new_pop
@@ -266,8 +287,9 @@ def main() -> int:
     generations = run_GA_training(
         population_size=20,
         num_generations=20,
-        crossover_point=0.1,
+        crossover_rate=0.1,
         mutation_rate=0.01,
+        mutation_std=0.1,
         selection_method=tournament_selection
     )
 
