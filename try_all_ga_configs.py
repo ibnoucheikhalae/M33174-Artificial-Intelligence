@@ -24,6 +24,7 @@ import numpy as np
 import sys
 import pickle
 
+from datetime import datetime
 from typing import Dict, Tuple
 from numpy.typing import NDArray
 from GA import run_GA_training, tournament_selection, roulette_selection
@@ -61,7 +62,7 @@ def try_all_permutations() -> Dict[Tuple[str, float, float], NDArray[np.float64]
 def main() -> int:
     data = try_all_permutations()
 
-    with open("all_permutations.pkl", "wb") as file:
+    with open(datetime.now() + "-all_permutations.pkl", "wb") as file:
         pickle.dump(data, file)
 
     return 0
