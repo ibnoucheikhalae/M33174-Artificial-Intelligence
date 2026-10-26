@@ -42,7 +42,7 @@ MUT_RATES = [0.01, 0.02, 0.05, 0.1, 0.15]
 MUT_STDS = [0.025, 0.05, 0.1, 0.2, 0.4]
 
 
-def try_all_permutations() -> Dict[Tuple[str, float, float], NDArray[np.float64]]:
+def try_all_permutations(seed: float) -> Dict[Tuple[str, float, float], NDArray[np.float64]]:
         """
         Returns a dictionary where the keys are the used settings and the values are the history
         of generations -- shape =
@@ -60,16 +60,19 @@ def try_all_permutations() -> Dict[Tuple[str, float, float], NDArray[np.float64]
                                     crossover_rate=crossover_rate,
                                     mutation_rate=mutation_rate,
                                     mutation_std=mutation_std,
-                                    selection_method=selection_method
+                                    selection_method=selection_method,
+                                    pop_seed=seed
                                 )
                                 key = (selection_key, crossover_rate, mutation_rate)
                                 all_permuations[key] = generations
         return all_permuations
 
 def main() -> int:
-    data = try_all_permutations()
 
-    with open(datetime.now() + "-all_permutations.pkl", "wb") as file:
+    seed = datetime.now().timestamp()
+    data = try_all_permutations(seed)
+
+    with open(str(seed) + "-all_permutations.pkl", "wb") as file:
         pickle.dump(data, file)
 
     return 0

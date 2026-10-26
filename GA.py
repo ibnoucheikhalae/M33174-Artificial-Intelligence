@@ -3,7 +3,7 @@ import sys
 import random
 
 from numpy.typing import NDArray
-from typing import Callable
+from typing import Callable, Optional
 
 NUM_FRAMES = 300
 NUM_LEGS = 8
@@ -26,7 +26,7 @@ MUTATION_RANGE_STEP_MAX = 2
 
 
 #! Assuming float64, we may be able to optimise this
-def init_population(n: int) -> NDArray[np.float64]:
+def init_population(n: int, seed: Optional[float] = None) -> NDArray[np.float64]:
     """
     Initialise a population of n individuals
     The structure of each individual is described below:
@@ -57,7 +57,7 @@ def init_population(n: int) -> NDArray[np.float64]:
     between the MIN_JOINT_ANGLE and MAX_JOINT_ANGLE control variables.
     It then asserts the population matches the expected shape and returns it
     """
-    rng = np.random.default_rng()
+    rng = np.random.default_rng(seed)
     init_population = rng.uniform(
         MIN_JOINT_ANGLES, MAX_JOINT_ANGLES, size=(n, NUM_FRAMES, NUM_LEGS, NUM_LEG_SEGS)
     )
@@ -232,6 +232,7 @@ def run_GA_training(
         mutation_rate: float,
         mutation_std: float,
         selection_method: Callable[[NDArray[np.float64], NDArray[np.float64], int], NDArray[np.float64]],
+        pop_seed: Optional[float] = None
 ) -> NDArray[np.float64]:
     """
     Runs the actual genetic algorithim training using the input control variables.
@@ -252,7 +253,7 @@ def run_GA_training(
     """
 
     # 1) Initialise Population
-    pop = init_population(population_size)
+    pop = init_population(population_size, pop_seed)
 
     # Extra step: Store all generations so we can do data analysis on them later
     # num_generations+1 as initial population is considered generation 0
