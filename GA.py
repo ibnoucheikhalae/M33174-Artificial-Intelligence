@@ -74,8 +74,9 @@ def evaluate_fitness(pop: NDArray[np.float64]) -> NDArray[np.float64]:
         )
     return fitness
 
+
 def roulette_selection(
-        pop: NDArray[np.float64], fitness: NDArray[np.float64], n: int
+    pop: NDArray[np.float64], fitness: NDArray[np.float64], n: int
 ) -> NDArray[np.float64]:
     """
     Uses roulette selection to select which individuals of the population will proceed to
@@ -92,9 +93,7 @@ def roulette_selection(
     Returns:
         selected_parents: NDArray[np.float64]; shape = (n, NUM_FRAMES, NUM_LEGS, NUM_LEG_SEGS)
     """
-    selected_parents = np.empty(
-        (n,) + pop.shape[1:], dtype=np.float64
-    )
+    selected_parents = np.empty((n,) + pop.shape[1:], dtype=np.float64)
 
     normalised = fitness / fitness.sum()
     cumulative_fitness = np.cumsum(normalised)
@@ -114,6 +113,7 @@ def roulette_selection(
             f"Selected Parents wrong shape! Expected: {(n, NUM_FRAMES, NUM_LEGS, NUM_LEG_SEGS)}; Actual: {selected_parents.shape};"
         )
     return selected_parents
+
 
 def tournament_selection(
     pop: NDArray[np.float64], fitness: NDArray[np.float64], n: int
@@ -206,12 +206,14 @@ def mutate(pop: NDArray[np.float64], mutation_rate: float) -> NDArray[np.float64
 
 
 def run_GA_training(
-        population_size: int,
-        num_generations: int,
-        crossover_rate: float,
-        mutation_rate: float,
-        selection_method: Callable[[NDArray[np.float64], NDArray[np.float64], int], NDArray[np.float64]],
-) -> NDArray[np.float64]:
+    population_size: int,
+    num_generations: int,
+    crossover_rate: float,
+    mutation_rate: float,
+    selection_method: Callable[
+        [NDArray[np.float64], NDArray[np.float64], int], NDArray[np.float64]
+    ],
+) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
     """
     Runs the actual genetic algorithim training using the input control variables.
 
@@ -236,6 +238,7 @@ def run_GA_training(
     # Extra step: Store all generations so we can do data analysis on them later
     # num_generations+1 as initial population is considered generation 0
     generations = np.empty((num_generations + 1,) + pop.shape)
+    fitness_history = np.empty((num_generations + 1, population_size))
     generations[0] = pop
 
     # 2) Training Loop
@@ -244,6 +247,7 @@ def run_GA_training(
     ):  # +1 because the initial population is gen 0
         # 2.a) Evaluate Population Fitness
         population_fitness = evaluate_fitness(pop)
+        fitness_history[gen - 1] = population_fitness
 
         # 2.b) Select Individuals for Crossover
         # n=population_size means population won't shrink/grow
@@ -259,7 +263,9 @@ def run_GA_training(
         pop = new_pop
         generations[gen] = pop
 
-    return generations
+    fitness_history[-1] = evaluate_fitness(pop)
+    return generations, fitness_history
+
 
 def main() -> int:
     #! Note: Temporary stand-in values for now
@@ -268,7 +274,7 @@ def main() -> int:
         num_generations=20,
         crossover_point=0.1,
         mutation_rate=0.01,
-        selection_method=tournament_selection
+        selection_method=tournament_selection,
     )
 
     final_fitness = evaluate_fitness(generations[-1])
@@ -276,6 +282,7 @@ def main() -> int:
     print(f"Best fitness: {best}; average_fitness: {average};")
 
     return 0
+
 
 if __name__ == "__main__":
     sys.exit(main())
