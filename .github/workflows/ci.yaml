@@ -35,4 +35,5 @@ jobs:
         run: mypy .
       
       - name: Run tests
+        if: ${{ !cancelled() }}
         run: pytest --cov --cov-report=term-missing
