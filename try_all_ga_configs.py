@@ -48,8 +48,8 @@ def try_all_permutations() -> Dict[Tuple[str, float, float], NDArray[np.float64]
                 for crossover_rate in CO_RATES:
                         for mutation_rate in MUT_RATES:
                                 generations = run_GA_training(
-                                    population_size=20,
-                                    num_generations=20,
+                                    population_size=100,
+                                    num_generations=50,
                                     crossover_rate=crossover_rate,
                                     mutation_rate=mutation_rate,
                                     selection_method=selection_method
