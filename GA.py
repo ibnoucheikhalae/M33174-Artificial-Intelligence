@@ -26,7 +26,7 @@ MUTATION_RANGE_STEP_MAX = 2
 
 
 #! Assuming float64, we may be able to optimise this
-def init_population(n: int, seed: Optional[float] = None) -> NDArray[np.float64]:
+def init_population(n: int, seed: Optional[int] = None) -> NDArray[np.float64]:
     """
     Initialise a population of n individuals
     The structure of each individual is described below:
@@ -232,7 +232,7 @@ def run_GA_training(
         mutation_rate: float,
         mutation_std: float,
         selection_method: Callable[[NDArray[np.float64], NDArray[np.float64], int], NDArray[np.float64]],
-        pop_seed: Optional[float] = None
+        pop_seed: Optional[int] = None
 ) -> NDArray[np.float64]:
     """
     Runs the actual genetic algorithim training using the input control variables.
@@ -269,7 +269,7 @@ def run_GA_training(
 
         # 2.b) Select Individuals for Crossover
         # n=population_size means population won't shrink/grow
-        selected_parents = selection_method(pop, population_fitness, n=population_size)
+        selected_parents = selection_method(pop, population_fitness, population_size)
 
         # 2.c) Apply Crossover
         offspring = crossover(selected_parents, crossover_rate)

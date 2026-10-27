@@ -218,13 +218,13 @@ def forward_leg_kinematics2(
 # --- Helper function: axis-angle rotation matrix ---
 def axis_angle_rotation_matrix(axis: ArrayLike, angle: float) -> NDArray[np.float64]:
     """Build the original Rodrigues rotation matrix for an axis and angle in radians."""
-    axis = np.asarray(axis, dtype=float).reshape(3)
+    axis_array = np.asarray(axis, dtype=np.float64).reshape(3)
     # Normalization removes any dependence on axis length; a zero axis remains
     # undefined, just as in the MATLAB implementation.
-    axis = axis / np.linalg.norm(axis)
-    x = axis[0]
-    y = axis[1]
-    z = axis[2]
+    axis_array = axis_array / np.linalg.norm(axis_array)
+    x = axis_array[0]
+    y = axis_array[1]
+    z = axis_array[2]
     c = np.cos(angle)
     s = np.sin(angle)
     C = 1 - c

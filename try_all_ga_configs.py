@@ -42,7 +42,7 @@ MUT_RATES = [0.01, 0.02, 0.05, 0.1, 0.15]
 MUT_STDS = [0.025, 0.05, 0.1, 0.2, 0.4]
 
 
-def try_all_permutations(seed: float) -> Dict[Tuple[str, float, float], NDArray[np.float64]]:
+def try_all_permutations(seed: int) -> Dict[Tuple[str, float, float, float], NDArray[np.float64]]:
         """
         Returns a dictionary where the keys are the used settings and the values are the history
         of generations -- shape =
@@ -63,13 +63,13 @@ def try_all_permutations(seed: float) -> Dict[Tuple[str, float, float], NDArray[
                                     selection_method=selection_method,
                                     pop_seed=seed
                                 )
-                                key = (selection_key, crossover_rate, mutation_rate)
+                                key = (selection_key, crossover_rate, mutation_rate, mutation_std)
                                 all_permuations[key] = generations
         return all_permuations
 
 def main() -> int:
 
-    seed = datetime.now().timestamp()
+    seed = int(datetime.now().timestamp() * 1_000_000)
     data = try_all_permutations(seed)
 
     with open(str(seed) + "-all_permutations.pkl", "wb") as file:
