@@ -23,6 +23,7 @@ Result summaries are stored in an dictionary for later analysis
 The dictionary takes the form {(selection_method, co_rate, mut_rate): population_history}
 where we use the strings 't' or 'r' to encode selection_method
 """
+
 import numpy as np
 import sys
 import pickle
@@ -30,7 +31,12 @@ import pickle
 from datetime import datetime
 from typing import Dict, Optional, TypedDict
 from numpy.typing import NDArray
-from GA import run_GA_training, tournament_selection, roulette_selection, evaluate_fitness
+from GA import (
+    run_GA_training,
+    tournament_selection,
+    roulette_selection,
+    evaluate_fitness,
+)
 
 SELECTION_METHODS = [tournament_selection, roulette_selection]
 
@@ -43,14 +49,17 @@ MUT_STDS = [0.025, 0.05, 0.1, 0.2, 0.4]
 
 ConfigKey = tuple[str, float, float, float]
 
+
 class RunSummary(TypedDict):
     """
     Per-generation fitness statistics and the best gait from the entire run
     """
+
     best_fitness: NDArray[np.float64]
     average_fitenss: NDArray[np.float64]
     best_gait: NDArray[np.float64]
     best_generation: int
+
 
 def summarise_generations(generations: NDArray[np.float64]) -> RunSummary:
     """
@@ -65,40 +74,43 @@ def summarise_generations(generations: NDArray[np.float64]) -> RunSummary:
         "best_fitness": best_fitness,
         "average_fitenss": fitness.mean(axis=1),
         "best_gait": generations[best_generation, best_individual].copy(),
-        "best_generation": best_generation
+        "best_generation": best_generation,
     }
 
 
 def try_all_permutations(seed: int) -> Dict[ConfigKey, RunSummary]:
-        """
-        Returns a dictionary where the keys are the used settings and the values are the history
-        of generations -- shape =
-        (num_permutations, num_generations+1, population_size, NUM_FRAMES, NUM_LEGS, NUM_LEG_SEGS)
-        """
-        all_permuations = {}
-        for selection_method in SELECTION_METHODS:
-                selection_key = 't' if selection_method.__name__ == 'tournament_selection' else 'r'
-                for crossover_rate in CO_RATES:
-                        for mutation_rate in MUT_RATES:
-                            for mutation_std in MUT_STDS:
-                                key = (selection_key, crossover_rate, mutation_rate, mutation_std)
-                                print(f"Trying config: {key}")
-                                generations = run_GA_training(
-                                    population_size=100,
-                                    num_generations=50,
-                                    crossover_rate=crossover_rate,
-                                    mutation_rate=mutation_rate,
-                                    mutation_std=mutation_std,
-                                    selection_method=selection_method,
-                                    pop_seed=seed
-                                )
-                                summary = summarise_generations(generations)
-                                del generations
-                                all_permuations[key] = summary
-                                print(f"Max final fitness: {summary['best_fitness'][-1]}")
-        return all_permuations
+    """
+    Returns a dictionary where the keys are the used settings and the values are the history
+    of generations -- shape =
+    (num_permutations, num_generations+1, population_size, NUM_FRAMES, NUM_LEGS, NUM_LEG_SEGS)
+    """
+    all_permuations = {}
+    for selection_method in SELECTION_METHODS:
+        selection_key = (
+            "t" if selection_method.__name__ == "tournament_selection" else "r"
+        )
+        for crossover_rate in CO_RATES:
+            for mutation_rate in MUT_RATES:
+                for mutation_std in MUT_STDS:
+                    key = (selection_key, crossover_rate, mutation_rate, mutation_std)
+                    print(f"Trying config: {key}")
+                    generations = run_GA_training(
+                        population_size=100,
+                        num_generations=50,
+                        crossover_rate=crossover_rate,
+                        mutation_rate=mutation_rate,
+                        mutation_std=mutation_std,
+                        selection_method=selection_method,
+                        pop_seed=seed,
+                    )
+                    summary = summarise_generations(generations)
+                    del generations
+                    all_permuations[key] = summary
+                    print(f"Max final fitness: {summary['best_fitness'][-1]}")
+    return all_permuations
 
-def main(file_to_read: Optional[str] = None) -> int:
+
+def main(file_to_read: Optional[str] = None):
 
     # In write mode
     if file_to_read is None:
@@ -122,6 +134,7 @@ def main(file_to_read: Optional[str] = None) -> int:
 
     print("Best configuration:", best_config)
     print("Best fitness:", best_result["best_fitness"].max())
+
 
 if __name__ == "__main__":
     sys.exit(main())
