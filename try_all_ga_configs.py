@@ -28,7 +28,7 @@ import sys
 import pickle
 
 from datetime import datetime
-from typing import Dict, Tuple, TypedDict
+from typing import Dict, Optional, TypedDict
 from numpy.typing import NDArray
 from GA import run_GA_training, tournament_selection, roulette_selection, evaluate_fitness
 
@@ -40,6 +40,8 @@ CO_RATES = [0.1, 0.2, 0.4, 0.6, 0.8]
 MUT_RATES = [0.01, 0.02, 0.05, 0.1, 0.15]
 
 MUT_STDS = [0.025, 0.05, 0.1, 0.2, 0.4]
+
+ConfigKey = tuple[str, float, float, float]
 
 class RunSummary(TypedDict):
     """
@@ -67,7 +69,7 @@ def summarise_generations(generations: NDArray[np.float64]) -> RunSummary:
     }
 
 
-def try_all_permutations(seed: int) -> Dict[Tuple[str, float, float, float], NDArray[np.float64]]:
+def try_all_permutations(seed: int) -> Dict[ConfigKey, RunSummary]:
         """
         Returns a dictionary where the keys are the used settings and the values are the history
         of generations -- shape =
@@ -96,15 +98,30 @@ def try_all_permutations(seed: int) -> Dict[Tuple[str, float, float, float], NDA
                                 print(f"Max final fitness: {summary['best_fitness'][-1]}")
         return all_permuations
 
-def main() -> int:
+def main(file_to_read: Optional[str] = None) -> int:
 
-    seed = int(datetime.now().timestamp() * 1_000_000)
-    data = try_all_permutations(seed)
+    # In write mode
+    if file_to_read is None:
+        seed = int(datetime.now().timestamp() * 1_000_000)
+        data = try_all_permutations(seed)
 
-    with open(str(seed) + "-all_permutations.pkl", "wb") as file:
-        pickle.dump(data, file, protocol=pickle.HIGHEST_PROTOCOL)
+        with open(str(seed) + "-all_permutations.pkl", "wb") as file:
+            pickle.dump(data, file, protocol=pickle.HIGHEST_PROTOCOL)
 
-    return 0
+        return 0
+
+    # In read mode
+    with open(file_to_read, "rb") as file:
+        data = pickle.load(file)
+
+    best_config = max(
+        data,
+        key=lambda config: data[config]["best_fitness"].max(),
+    )
+    best_result = data[best_config]
+
+    print("Best configuration:", best_config)
+    print("Best fitness:", best_result["best_fitness"].max())
 
 if __name__ == "__main__":
     sys.exit(main())
