@@ -15,6 +15,9 @@ The testing takes the following shape:
                             /
                         mut.-rate
     range of mut. values / | | \
+                        /
+                    mut.-std
+    range of values / | | \
 
 All results are stored in an dictionary for later analysis
 The dictionary takes the form {(selection_method, co_rate, mut_rate): population_history}
@@ -36,8 +39,10 @@ CO_RATES = [0.1, 0.2, 0.4, 0.6, 0.8]
 # Discrete values to save on computation time
 MUT_RATES = [0.01, 0.02, 0.05, 0.1, 0.15]
 
+MUT_STDS = [0.025, 0.05, 0.1, 0.2, 0.4]
 
-def try_all_permutations() -> Dict[Tuple[str, float, float], NDArray[np.float64]]:
+
+def try_all_permutations(seed: int) -> Dict[Tuple[str, float, float, float], NDArray[np.float64]]:
         """
         Returns a dictionary where the keys are the used settings and the values are the history
         of generations -- shape =
@@ -48,21 +53,26 @@ def try_all_permutations() -> Dict[Tuple[str, float, float], NDArray[np.float64]
                 selection_key = 't' if selection_method.__name__ == 'tournament_selection' else 'r'
                 for crossover_rate in CO_RATES:
                         for mutation_rate in MUT_RATES:
+                            for mutation_std in MUT_STDS:
                                 generations = run_GA_training(
                                     population_size=100,
                                     num_generations=50,
                                     crossover_rate=crossover_rate,
                                     mutation_rate=mutation_rate,
-                                    selection_method=selection_method
+                                    mutation_std=mutation_std,
+                                    selection_method=selection_method,
+                                    pop_seed=seed
                                 )
-                                key = (selection_key, crossover_rate, mutation_rate)
+                                key = (selection_key, crossover_rate, mutation_rate, mutation_std)
                                 all_permuations[key] = generations
         return all_permuations
 
 def main() -> int:
-    data = try_all_permutations()
 
-    with open(datetime.now() + "-all_permutations.pkl", "wb") as file:
+    seed = int(datetime.now().timestamp() * 1_000_000)
+    data = try_all_permutations(seed)
+
+    with open(str(seed) + "-all_permutations.pkl", "wb") as file:
         pickle.dump(data, file)
 
     return 0
