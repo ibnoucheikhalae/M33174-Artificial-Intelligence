@@ -12,9 +12,8 @@ NUM_LEG_SEGS = 3
 RIGHT_MIN = [-1.57, -1.57, -2.0]
 RIGHT_MAX = [1.57, 1.57, 1.0]
 
-# knee: flipped because results from webbots were flipped
-LEFT_MIN = [-1.57, -1.57, -1.0]
-LEFT_MAX = [1.57, 1.57, 2.0]
+LEFT_MIN = [-1.57, -1.57, -2.0]
+LEFT_MAX = [1.57, 1.57, 1.0]
 
 # L1, L2, L3, L4, R4, R3, R2, R1 : Based on the controller
 MIN_JOINT_ANGLES = np.array([LEFT_MIN] * 4 + [RIGHT_MIN] * 4)
@@ -81,8 +80,9 @@ def evaluate_fitness(pop: NDArray[np.float64]) -> NDArray[np.float64]:
         )
     return fitness
 
+
 def roulette_selection(
-        pop: NDArray[np.float64], fitness: NDArray[np.float64], n: int
+    pop: NDArray[np.float64], fitness: NDArray[np.float64], n: int
 ) -> NDArray[np.float64]:
     """
     Uses roulette selection to select which individuals of the population will proceed to
@@ -99,9 +99,7 @@ def roulette_selection(
     Returns:
         selected_parents: NDArray[np.float64]; shape = (n, NUM_FRAMES, NUM_LEGS, NUM_LEG_SEGS)
     """
-    selected_parents = np.empty(
-        (n,) + pop.shape[1:], dtype=np.float64
-    )
+    selected_parents = np.empty((n,) + pop.shape[1:], dtype=np.float64)
 
     normalised = fitness / fitness.sum()
     cumulative_fitness = np.cumsum(normalised)
@@ -121,6 +119,7 @@ def roulette_selection(
             f"Selected Parents wrong shape! Expected: {(n, NUM_FRAMES, NUM_LEGS, NUM_LEG_SEGS)}; Actual: {selected_parents.shape};"
         )
     return selected_parents
+
 
 def tournament_selection(
     pop: NDArray[np.float64], fitness: NDArray[np.float64], n: int
@@ -186,9 +185,7 @@ def crossover(
 
 
 def mutate(
-    pop: NDArray[np.float64],
-    mutation_rate: float,
-    mutation_std: float
+    pop: NDArray[np.float64], mutation_rate: float, mutation_std: float
 ) -> NDArray[np.float64]:
     """
     Mutate a population. Each individual has a mutation_rate% of being mutated.
@@ -229,13 +226,15 @@ def mutate(
 
 
 def run_GA_training(
-        population_size: int,
-        num_generations: int,
-        crossover_rate: float,
-        mutation_rate: float,
-        mutation_std: float,
-        selection_method: Callable[[NDArray[np.float64], NDArray[np.float64], int], NDArray[np.float64]],
-        pop_seed: Optional[int] = None
+    population_size: int,
+    num_generations: int,
+    crossover_rate: float,
+    mutation_rate: float,
+    mutation_std: float,
+    selection_method: Callable[
+        [NDArray[np.float64], NDArray[np.float64], int], NDArray[np.float64]
+    ],
+    pop_seed: Optional[int] = None,
 ) -> NDArray[np.float64]:
     """
     Runs the actual genetic algorithim training using the input control variables.
@@ -286,6 +285,7 @@ def run_GA_training(
 
     return generations
 
+
 def main(printy: bool = False) -> int:
     #! Note: Temporary stand-in values for now
     generations = run_GA_training(
@@ -294,7 +294,7 @@ def main(printy: bool = False) -> int:
         crossover_rate=0.1,
         mutation_rate=0.01,
         mutation_std=0.1,
-        selection_method=tournament_selection
+        selection_method=tournament_selection,
     )
 
     if printy:
@@ -304,6 +304,7 @@ def main(printy: bool = False) -> int:
             print(f"Gen {i}: Best fitness: {best}; average_fitness: {average};")
 
     return 0
+
 
 if __name__ == "__main__":
     sys.exit(main(True))
