@@ -286,7 +286,7 @@ def run_GA_training(
 
     return generations
 
-def main() -> int:
+def main(printy: bool = False) -> int:
     #! Note: Temporary stand-in values for now
     generations = run_GA_training(
         population_size=20,
@@ -297,11 +297,13 @@ def main() -> int:
         selection_method=tournament_selection
     )
 
-    final_fitness = evaluate_fitness(generations[-1])
-    best, average = np.max(final_fitness), np.mean(final_fitness)
-    print(f"Best fitness: {best}; average_fitness: {average};")
+    if printy:
+        for i, gen in enumerate(generations):
+            final_fitness = evaluate_fitness(gen)
+            best, average = np.max(final_fitness), np.mean(final_fitness)
+            print(f"Gen {i}: Best fitness: {best}; average_fitness: {average};")
 
     return 0
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(True))
