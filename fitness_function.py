@@ -77,7 +77,7 @@ TARGET_POSES = np.stack([START, SPREAD, CLOSE, END])
 # Fitness = BASE_FITNESS - (weighted sum of penalties). A perfect gait scores
 # BASE_FITNESS; every penalty subtracts from it. Weights: tune later.
 BASE_FITNESS = 1.0
-TARGET_WEIGHT = 1.0
+TARGET_WEIGHT = 0.6
 SMOOTHNESS_WEIGHT = 0.2
 SYMMETRY_WEIGHT = 0.2
 
@@ -115,7 +115,8 @@ def smoothness_penalty(gait: NDArray[np.float64]) -> float:
     Mean squared second difference penalises abrupt changes in velocity.
     """
     _validate_angles(gait, GAIT_SHAPE)
-    return float(np.mean(np.diff(gait, n=2, axis=0) ** 2))
+    second_diff = np.diff(gait, n=2, axis=0)
+    return float(np.mean((second_diff / (2 * ANGLE_RANGES)) ** 2))
 
 
 def symmetry_penalty(
