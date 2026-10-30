@@ -2,6 +2,7 @@ import numpy as np
 import sys
 import random
 
+from fitness_function import fitness_function
 from numpy.typing import NDArray
 from typing import Callable, Optional
 
@@ -70,7 +71,7 @@ def evaluate_fitness(pop: NDArray[np.float64]) -> NDArray[np.float64]:
     Our fitness function. Evaluates the fitness of each individual in a population.
     Takes in a population and returns an array consisting of one fitness value per individual.
     """
-    fitness = np.zeros(pop.shape[0])  #! Stub function while I lay out large structure
+    fitness = np.array([fitness_function(gait) for gait in pop])
 
     if len(fitness) != len(pop):
         raise ValueError(
