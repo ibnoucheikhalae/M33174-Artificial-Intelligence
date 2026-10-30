@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
  
-import fitness as f
+import Fitness_function as f
  
  
 # --- Helpers -----------------------------------------------------------------
