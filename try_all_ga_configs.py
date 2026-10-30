@@ -31,6 +31,7 @@ from datetime import datetime
 from typing import Dict, Tuple
 from numpy.typing import NDArray
 from GA import run_GA_training, tournament_selection, roulette_selection
+from fitness_function import fitness_function
 
 SELECTION_METHODS = [tournament_selection, roulette_selection]
 
@@ -54,6 +55,8 @@ def try_all_permutations(seed: int) -> Dict[Tuple[str, float, float, float], NDA
                 for crossover_rate in CO_RATES:
                         for mutation_rate in MUT_RATES:
                             for mutation_std in MUT_STDS:
+                                key = (selection_key, crossover_rate, mutation_rate, mutation_std)
+                                print(f"Trying config: ({", ".join([str(k) for k in key])})")
                                 generations = run_GA_training(
                                     population_size=100,
                                     num_generations=50,
@@ -63,8 +66,11 @@ def try_all_permutations(seed: int) -> Dict[Tuple[str, float, float, float], NDA
                                     selection_method=selection_method,
                                     pop_seed=seed
                                 )
-                                key = (selection_key, crossover_rate, mutation_rate, mutation_std)
                                 all_permuations[key] = generations
+                                print(
+                                      "Max final fitness: "
+                                      f"{max([fitness_function(gait) for gait in generations[-1]])}"
+                                )
         return all_permuations
 
 def main() -> int:
