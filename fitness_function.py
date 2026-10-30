@@ -10,7 +10,7 @@ from GA import (
 
 POSE_SHAPE = (NUM_LEGS, NUM_LEG_SEGS)
 GAIT_SHAPE = (NUM_FRAMES, *POSE_SHAPE)
-KEYFRAMES = np.array([0, NUM_FRAMES // 2, NUM_FRAMES - 1])  # frames 0, 150, 299
+KEYFRAMES = KEYFRAMES = np.array([0, 80, 200, 299])
 ANGLE_RANGES = MAX_JOINT_ANGLES - MIN_JOINT_ANGLES
 
 # Mirror-pair indexing: left leg i pairs with right leg RIGHT_MIRRORED[i].
@@ -25,24 +25,54 @@ MIRROR_SIGNS = np.asarray((-1.0, -1.0, -1.0), dtype=np.float64)
 MIRROR_OFFSETS = np.asarray((0.0, 0.0, 0.0), dtype=np.float64)
 
 # Target poses. START/END are still stubs until Prince/Alae finalise them;
-# MIDPOINT is the real pose. Leg order: L1, L2, L3, L4, R4, R3, R2, R1.
-START = np.zeros(POSE_SHAPE)  # TODO: real start pose
-MIDPOINT = np.array(
-    [
-        [0.24, -1.3056, 0.8156],  # L1
-        [0.10, -1.3056, 0.8156],  # L2
-        [-0.10, -1.3056, 0.8156],  # L3
-        [-0.24, -1.3056, 0.8156],  # L4
-        [0.24, 1.3056, -0.8156],  # R4
-        [0.10, 1.3056, -0.8156],  # R3
-        [-0.10, 1.3056, -0.8156],  # R2
-        [-0.24, 1.3056, -0.8156],  # R1
-    ],
-    dtype=float,
-)
-MIDPOINT_VECTOR = MIDPOINT.flatten()  # 24 values, row-major (leg by leg)
-END = START.copy()  # TODO: real end pose
-STUB_TARGETS = np.stack([START, MIDPOINT, END])  # (3, 8, 3)
+
+# Target poses extracted from the Webots controller.
+# Leg order: L1, L2, L3, L4, R4, R3, R2, R1
+# Joint order: hip, thigh, knee
+# All angles are in radians.
+
+# Frame 0: Initial standing position
+START = np.array([
+    [0.00, -1.3056,  0.8156],  # L1
+    [0.00, -1.3056,  0.8156],  # L2
+    [0.00, -1.3056,  0.8156],  # L3
+    [0.00, -1.3056,  0.8156],  # L4
+    [0.00,  1.3056, -0.8156],  # R4
+    [0.00,  1.3056, -0.8156],  # R3
+    [0.00,  1.3056, -0.8156],  # R2
+    [0.00,  1.3056, -0.8156],  # R1
+], dtype=float)
+
+# Frame 80: Legs fully spread
+SPREAD = np.array([
+    [-0.48, -1.3056,  0.8156],  # L1
+    [-0.20, -1.3056,  0.8156],  # L2
+    [ 0.20, -1.3056,  0.8156],  # L3
+    [ 0.48, -1.3056,  0.8156],  # L4
+    [-0.48,  1.3056, -0.8156],  # R4
+    [-0.20,  1.3056, -0.8156],  # R3
+    [ 0.20,  1.3056, -0.8156],  # R2
+    [ 0.48,  1.3056, -0.8156],  # R1
+], dtype=float)
+
+# Frame 200: Legs brought closer into pairs
+CLOSE = np.array([
+    [ 0.24, -1.3056,  0.8156],  # L1
+    [ 0.10, -1.3056,  0.8156],  # L2
+    [-0.10, -1.3056,  0.8156],  # L3
+    [-0.24, -1.3056,  0.8156],  # L4
+    [ 0.24,  1.3056, -0.8156],  # R4
+    [ 0.10,  1.3056, -0.8156],  # R3
+    [-0.10,  1.3056, -0.8156],  # R2
+    [-0.24,  1.3056, -0.8156],  # R1
+], dtype=float)
+
+# Frame 299: Hold the final close position
+END = CLOSE.copy()
+
+# Combine the four target poses
+TARGET_POSES = np.stack([START, SPREAD, CLOSE, END])
+
 
 # Fitness = BASE_FITNESS - (weighted sum of penalties). A perfect gait scores
 # BASE_FITNESS; every penalty subtracts from it. Weights: tune later.
@@ -74,7 +104,7 @@ def target_pose_penalty(
     midpoint pose would only score ~0.03.
     """
     _validate_angles(gait, GAIT_SHAPE)
-    _validate_angles(targets, (3, *POSE_SHAPE))
+    _validate_angles(targets, (len(KEYFRAMES), *POSE_SHAPE))
     error = (gait[KEYFRAMES] - targets) / ANGLE_RANGES
     return float(np.sqrt(np.mean(error**2)))
 
@@ -123,13 +153,12 @@ def symmetry_penalty(
 # --- Combined fitness ---------------------------------------------------------
 def fitness_function(
     gait: NDArray[np.float64],
-    targets: NDArray[np.float64] = STUB_TARGETS,
+    targets: NDArray[np.float64] = TARGET_POSES,
 ) -> float:
     """Fitness of one individual (a single scalar, higher is better).
 
     gait: (300, 8, 3) joint angles in radians.
-    targets: (3, 8, 3) target poses compared against frames 0, 150, 299.
-
+    targets: (4, 8, 3) target poses compared against frames 0, 80, 200, 299.
     fitness = BASE_FITNESS
             - TARGET_WEIGHT     * target_pose_penalty
             - SMOOTHNESS_WEIGHT * smoothness_penalty
