@@ -59,6 +59,33 @@ class TestTemporalGA(unittest.TestCase):
             with self.assertRaises(ValueError):
                 GA.crossover(parents, invalid)
 
+    def test_mutate(self) -> None:
+        population = np.zeros((2, *f.GAIT_SHAPE))
+        np.testing.assert_array_equal(GA.mutate(population, 0, 0.1), population)
+        np.testing.assert_array_equal(GA.mutate(population, 1, 0), population)
+        mutated = GA.mutate(population, 1, 0.1)
+        np.testing.assert_array_equal(mutated[:, [0, -1]], population[:, [0, -1]])
+        self.assertGreater(np.std(mutated), 0.01)
+        self.assertAlmostEqual(np.std(mutated[:, 1:-1]), 0.1, delta=0.005)
+        sparse = GA.mutate(population, 0.1, 0.1)
+        changed_fraction = np.count_nonzero(sparse) / population[:, 1:-1].size
+        self.assertAlmostEqual(changed_fraction, 0.1, delta=0.02)
+        self.assertTrue((mutated >= GA.MIN_JOINT_ANGLES).all())
+        self.assertTrue((mutated <= GA.MAX_JOINT_ANGLES).all())
+        self.assertTrue((population == 0).all())
+        # With no random offset, a selected angle takes its neighbours' mean.
+        # Read neighbours from the original population, not earlier updates.
+        impulse = population.copy()
+        impulse[:, 100, 0, 0] = 0.6
+        averaged = GA.mutate(impulse, 1, 0)
+        expected = population.copy()
+        expected[:, [99, 101], 0, 0] = 0.3
+        np.testing.assert_array_equal(averaged, expected)
+        self.assertTrue((impulse[:, 100, 0, 0] == 0.6).all())
+        for rate, std in [(-1, 0.1), (2, 0.1), (0.1, -1), (0.1, np.inf)]:
+            with self.assertRaises(ValueError):
+                GA.mutate(population, rate, std)
+
     def test_roulette_selection(self) -> None:
         population = np.zeros((2, *f.GAIT_SHAPE))
         population[1] = 0.1

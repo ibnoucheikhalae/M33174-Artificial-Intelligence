@@ -227,15 +227,19 @@ def mutate(
     pop: NDArray[np.float64], mutation_rate: float, mutation_std: float
 ) -> NDArray[np.float64]:
     """
-    Mutate a population. Each individual has a mutation_rate% of being mutated.
+    Mutate selected angles around their temporal neighbours' mean.
+
+    This biases mutation towards local continuity, using only the existing
+    gait. Gaussian variation and fitness selection determine the movement.
 
     Args:
         pop: NDArray[np.float64]; shape = (population_size, NUM_FRAMES, NUM_LEGS, NUM_LEG_SEGS)
             - The population to mutate
         mutation_rate: float
-            - The percentage chance per individual for mutation (between 0 and 1)
+            - Probability of mutating each interior gene (between 0 and 1)
         mutation_std: float
-            - The standard deviation of mutation steps in radians
+            - Standard deviation around the neighbours' mean, in radians.
+              Zero still averages selected angles; it only removes random variation.
 
     Returns:
         mutated: NDArray[np.float64]; shape = (population_size, NUM_FRAMES, NUM_LEGS, NUM_LEG_SEGS)
@@ -256,11 +260,17 @@ def mutate(
     mask[:, [0, -1]] = False
 
     # Generate one Gaussian step per gene (normal), centered on 0 to allow for positive or negative
-    # mutation_std controls the typical step size in radians
+    # mutation_std controls the random variation around the neighbours' mean.
     steps = rng.normal(0.0, mutation_std, size=pop.shape)
 
-    # Apply the step wherever mask is true, use 0.0 elsewhere
-    mutated = pop + np.where(mask, steps, 0.0)
+    # Nearby frames should usually have similar angles. Centre Gaussian
+    # mutation on their mean to favour continuity while retaining exploration.
+    # Read the original gait so updates are simultaneous; no reference is used.
+    neighbour_mean = 0.5 * (pop[:, :-2] + pop[:, 2:])
+    mutated = pop.copy()
+    mutated[:, 1:-1] = np.where(
+        mask[:, 1:-1], neighbour_mean + steps[:, 1:-1], pop[:, 1:-1]
+    )
 
     # Clamp each angle to its joints valid range
     return np.clip(mutated, MIN_JOINT_ANGLES, MAX_JOINT_ANGLES)
@@ -339,8 +349,8 @@ def main(printy: bool = False) -> int:
         population_size=20,
         num_generations=20,
         crossover_rate=0.1,
-        mutation_rate=0.01,
-        mutation_std=0.1,
+        mutation_rate=0.005,
+        mutation_std=0.002,
         selection_method=tournament_selection,
     )
 

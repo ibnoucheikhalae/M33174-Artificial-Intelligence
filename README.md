@@ -77,7 +77,7 @@ Angles are clamped to their joint limits, and the first and last poses are fixed
 
 This gives evolution a head start: it refines a noisy reference rather than discovering the
 walking cycle from scratch. Crossover averages selected parents, and mutation adds
-independent Gaussian changes to selected angles. These operators use the existing population;
+Gaussian variation around neighbouring frames. These operators use the existing population;
 the reference is used for initialization and scoring.
 
 `init_population`, `run_GA_training`, and `try_all_permutations` accept `initial_std`.
@@ -176,7 +176,9 @@ Heinen and Osório (2006a) used \(p_c = 0.6\) but gave no justification, and non
 
 ## 7. Mutation
 
-Mutation adds a small random change to a gene, drawn from a normal distribution, and clamps the result to the joint's valid range. This is Gaussian mutation, as used by Heinen and Osório (2006b) and Vice, Sukthankar and Douglas (2022). A bit flip, the classic binary operator, does not apply to real-valued angles.
+Mutation selects individual angles with probability \(p_m\). For a selected interior angle, it uses \(\theta'_t=(\theta_{t-1}+\theta_{t+1})/2+\epsilon\), where \(\epsilon\) is Gaussian noise with standard deviation `mutation_std` in radians. Both neighbours are read from the original individual, then results are clamped to the joint limits. Endpoint poses remain fixed.
+
+This is a deliberate local continuity bias: nearby frames usually need similar angles. It uses the current gait, and does not prescribe a cycle or use the target to choose a mutation. The Gaussian variation is independent for each selected angle; fitness selects among the resulting individuals. `mutation_std` controls variation around the neighbours' mean, so the total change can be larger than that value when a pose is far from its neighbours. With `mutation_std=0`, selected angles still take that mean; `mutation_rate=0` disables mutation.
 
 The mutation rate \(p_m\) is the probability that each gene is mutated. Heinen and Osório (2006a) used \(p_m = 0.05\), Wang et al. (2021) used 0.1, and Vice, Sukthankar and Douglas (2022) used 0.4 per parameter on a much smaller genome. Since the published values disagree and none is justified, we test \(p_m \in \{0.01, 0.02, 0.05, 0.10\}\).
 
