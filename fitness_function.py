@@ -126,14 +126,20 @@ def acceleration_penalty(gait: NDArray[np.float64]) -> float:
     return float(np.mean((second_diff / (2 * ANGLE_RANGES)) ** 2))
 
 
-def step_size_penalty(gait: NDArray[np.float64]) -> float:
-    """
-    Aim for step size to be close to smooth interpolation.
-    Mean squared, range-normalised error from target absolute step sizes.
+def step_size_penalty(
+    gait: NDArray[np.float64],
+    target: NDArray[np.float64] = INTERPOLATED_REFERNCE_GAIT,
+) -> float:
+    """Mean squared, range-normalised error from signed target steps.
+
+    First differences give the angular change per frame. Keeping their sign
+    penalises movement in the wrong direction as well as at the wrong speed.
     """
     _validate_angles(gait, GAIT_SHAPE)
-    step_sizes = np.abs(np.diff(gait, axis=0))
-    error = (step_sizes - TARGET_STEP_SIZES) / ANGLE_RANGES
+    _validate_angles(target, GAIT_SHAPE)
+    target_step_sizes = np.diff(target, axis=0)
+    step_sizes = np.diff(gait, axis=0)
+    error = (step_sizes - target_step_sizes) / ANGLE_RANGES
     return float(np.mean(error**2))
 
 
@@ -190,6 +196,6 @@ def fitness_function(
         BASE_FITNESS
         - TARGET_WEIGHT * target_gait_penalty(gait, targets)
         - SYMMETRY_WEIGHT * symmetry_penalty(gait)
-        - STEP_SIZE_WEIGHT * step_size_penalty(gait)
+        - STEP_SIZE_WEIGHT * step_size_penalty(gait, targets)
         - ACCELERATION_WEIGHT * acceleration_penalty(gait)
     )

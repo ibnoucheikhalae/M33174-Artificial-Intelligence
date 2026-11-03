@@ -30,3 +30,8 @@ class TestTargetGait(unittest.TestCase):
         self.assertIsInstance(score, float)
         self.assertEqual(score, f.fitness_function(gait, gait))
         np.testing.assert_array_equal(evaluate_fitness(gait[None]), [score])
+
+    def test_fitness_function_custom_target(self):
+        # A static, symmetric gait matching its custom target has no penalties.
+        gait = np.zeros(f.GAIT_SHAPE)
+        self.assertEqual(f.fitness_function(gait, gait), f.BASE_FITNESS)
