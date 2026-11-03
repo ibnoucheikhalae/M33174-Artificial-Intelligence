@@ -59,11 +59,27 @@ CLOSE = np.array(
     dtype=float,
 )
 
-# Combine the target poses
+# One closed cycle: SPREAD -> CLOSE -> SPREAD. With 300 poses the last index is 299,
+# so the outward phase spans 150 frame intervals and the return spans 149.
 TARGET_POSES = np.stack([SPREAD, CLOSE, SPREAD])
 KEYFRAMES = np.array([0, 150, 299])
 
 TARGET_STEP_SIZES = np.abs(CLOSE - SPREAD) / 150.
+
+#* AI-Provided Formula for cubic interpolation *#
+# Linear phase u runs 0 -> 1 -> 0 through the keyframes. Each half uses its own
+# duration, so both the midpoint and the final pose are reached exactly.
+_reference_phase = np.interp(np.arange(NUM_FRAMES), KEYFRAMES, [0.0, 1.0, 0.0])
+# Smoothstep s(u) = 3u^2 - 2u^3 has s(0)=0, s(1)=1 and s'(u)=6u(1-u).
+# Its zero endpoint derivatives make the continuous reference stop at the start,
+# turnaround and end. It remains monotonic within each half, without overshoot.
+_reference_progress = 3 * _reference_phase**2 - 2 * _reference_phase**3
+# pose = start + progress * displacement. The extra axes broadcast one progress
+# value per frame over all 8 legs and 3 joints, producing shape (300, 8, 3).
+# This is a scoring reference; the GA still evolves every frame independently.
+INTERPOLATED_REFERNCE_GAIT = (
+    SPREAD + _reference_progress[:, None, None] * (CLOSE - SPREAD)
+)
 
 # Fitness = BASE_FITNESS - (weighted sum of penalties). A perfect gait scores
 # BASE_FITNESS; every penalty subtracts from it. Weights: tune later.
@@ -85,19 +101,17 @@ def _validate_angles(angles: NDArray[np.float64], shape: tuple[int, ...]) -> Non
 
 
 # --- Reward / penalty helpers (each unit-testable on its own) ---------------
-def target_pose_penalty(
-    gait: NDArray[np.float64], targets: NDArray[np.float64]
+def target_gait_penalty(
+    gait: NDArray[np.float64], target: NDArray[np.float64] = INTERPOLATED_REFERNCE_GAIT
 ) -> float:
-    """How far the three keyframes (0, 150, 299) are from their targets.
+    """Root-mean-square of range-normalised joint errors across the whole gait.
 
-    Root-mean-square of the range-normalised joint errors: 0 means every
-    keyframe matches exactly. RMSE (rather than MSE) is used so the penalty
-    is on a useful scale; with MSE a gait that completely ignores the
-    midpoint pose would only score ~0.03.
+    Zero means every frame matches the target. Taking the square root keeps
+    the penalty on the scale of the normalised angular errors.
     """
     _validate_angles(gait, GAIT_SHAPE)
-    _validate_angles(targets, (len(KEYFRAMES), *POSE_SHAPE))
-    error = (gait[KEYFRAMES] - targets) / ANGLE_RANGES
+    _validate_angles(target, GAIT_SHAPE)
+    error = (gait - target) / ANGLE_RANGES
     return float(np.sqrt(np.mean(error**2)))
 
 
@@ -158,23 +172,23 @@ def symmetry_penalty(
 # --- Combined fitness ---------------------------------------------------------
 def fitness_function(
     gait: NDArray[np.float64],
-    targets: NDArray[np.float64] = TARGET_POSES,
+    targets: NDArray[np.float64] = INTERPOLATED_REFERNCE_GAIT,
 ) -> float:
     """Fitness of one individual (a single scalar, higher is better).
 
     gait: (300, 8, 3) joint angles in radians.
-    targets: (4, 8, 3) target poses compared against frames 0, 80, 200, 299.
+    targets: (300, 8, 3) reference gait compared against every frame.
     fitness = BASE_FITNESS
-            - TARGET_WEIGHT     * target_pose_penalty
-            - STEP_SIZE_WEIGHT  * smoothness_penalty
+            - TARGET_WEIGHT     * target_gait_penalty
+            - STEP_SIZE_WEIGHT  * step_size_penalty
             - SYMMETRY_WEIGHT   * symmetry_penalty
-            - JERK_WEIGHT       * jerk_penalty
+            - ACCELERATION_WEIGHT * acceleration_penalty
 
     The best possible score is BASE_FITNESS; the result can be negative.
     """
     return float(
         BASE_FITNESS
-        - TARGET_WEIGHT * target_pose_penalty(gait, targets)
+        - TARGET_WEIGHT * target_gait_penalty(gait, targets)
         - SYMMETRY_WEIGHT * symmetry_penalty(gait)
         - STEP_SIZE_WEIGHT * step_size_penalty(gait)
         - ACCELERATION_WEIGHT * acceleration_penalty(gait)
