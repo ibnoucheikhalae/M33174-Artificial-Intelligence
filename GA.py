@@ -315,6 +315,9 @@ def run_GA_training(
         # 2.d) Mutate new population
         new_pop = mutate(offspring, mutation_rate, mutation_std)
 
+        # Preserve the best discovered gait so crossover/mutation cannot lose it. A single elite.
+        new_pop[0] = pop[int(population_fitness.argmax())]
+
         # 2.e)
         pop = new_pop
         generations[gen] = pop

@@ -48,6 +48,21 @@ class TestTemporalGA(unittest.TestCase):
             with self.assertRaises(ValueError):
                 GA.tournament_selection(population, fitness, 10, tournament_size=invalid)
 
+    def test_run_GA_training(self) -> None:
+        exact = GA.run_GA_training(2, 0, 0, 0, 0, GA.tournament_selection, initial_std=0)
+        np.testing.assert_array_equal(
+            exact[0], np.broadcast_to(f.INTERPOLATED_REFERNCE_GAIT, exact[0].shape)
+        )
+        for selection in [GA.tournament_selection, GA.roulette_selection]:
+            with self.subTest(selection=selection.__name__):
+                generations = GA.run_GA_training(8, 3, 1, 1, 0.1, selection, 42)
+                scores = [GA.evaluate_fitness(population).max() for population in generations]
+                self.assertTrue((np.diff(scores) >= 0).all())
+                for index in [0, -1]:
+                    np.testing.assert_array_equal(
+                        generations[:, :, index], np.broadcast_to(GA.SPREAD, (4, 8, 8, 3))
+                    )
+
     def test_fitness_function_rejects_jitter(self) -> None:
         reference = f.INTERPOLATED_REFERNCE_GAIT
         jittery = reference.copy()
