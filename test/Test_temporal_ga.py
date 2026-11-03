@@ -27,6 +27,38 @@ class TestTemporalGA(unittest.TestCase):
         self.assertTrue((population >= GA.MIN_JOINT_ANGLES).all())
         self.assertTrue((population <= GA.MAX_JOINT_ANGLES).all())
 
+    def test_crossover(self) -> None:
+        parents = np.broadcast_to(
+            np.array([[-0.2, -0.4, -0.6], [0.2, 0.4, 0.6], [0.0, 0.0, 0.0]])[
+                :, None, None, :
+            ], (3, *f.GAIT_SHAPE)
+        ).copy()
+        original = parents.copy()
+        np.testing.assert_array_equal(GA.crossover(parents, 0), parents)
+        with patch("numpy.random.default_rng", return_value=np.random.default_rng(42)):
+            children = GA.crossover(parents, 1)
+        np.testing.assert_array_equal(children[-1], parents[-1])
+        self.assertFalse(np.array_equal(children[:2], parents[:2]))
+        self.assertTrue((children[:2] > parents[0]).all())
+        self.assertTrue((children[:2] < parents[1]).all())
+        # One mixing weight for the whole pair preserves these joint ratios
+        # and introduces no frame-to-frame jumps between constant parents.
+        np.testing.assert_allclose(children[..., 1], 2 * children[..., 0])
+        np.testing.assert_allclose(children[..., 2], 3 * children[..., 0])
+        self.assertEqual(np.ptp(children[0, ..., 0]), 0)
+        np.testing.assert_allclose(np.diff(children, axis=1), 0)
+        np.testing.assert_allclose(children[0] + children[1], parents[0] + parents[1], atol=1e-15)
+        np.testing.assert_array_equal(parents, original)
+        paired = np.tile(parents[:2], (8, 1, 1, 1))
+        with patch("numpy.random.default_rng", return_value=np.random.default_rng(42)):
+            mixed = GA.crossover(paired, 0.5)
+        unchanged = np.all(mixed == paired, axis=(1, 2, 3))
+        self.assertTrue(unchanged.any() and (~unchanged).any())
+        np.testing.assert_array_equal(unchanged[::2], unchanged[1::2])
+        for invalid in [-0.1, 1.1]:
+            with self.assertRaises(ValueError):
+                GA.crossover(parents, invalid)
+
     def test_roulette_selection(self) -> None:
         population = np.zeros((2, *f.GAIT_SHAPE))
         population[1] = 0.1

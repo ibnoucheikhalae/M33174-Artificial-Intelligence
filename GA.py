@@ -190,11 +190,11 @@ def crossover(
     parents: NDArray[np.float64], crossover_rate: float
 ) -> NDArray[np.float64]:
     """
-    Swap each pair's alleles independently with the given probability.
+    Probabilistically combine each pair using a random weighted average.
 
     Args:
         parents: Population with shape (n, frames, legs, joints).
-        crossover_rate: Probability of swapping each allele, between 0 and 1.
+        crossover_rate: Probability of crossing each parent pair, between 0 and 1.
 
     Returns:
         Offspring with the same shape as parents. If the population size is
@@ -206,13 +206,21 @@ def crossover(
     rng = np.random.default_rng()
     offspring = parents.copy()
 
+    # Arithmetic crossover is a standard real-valued GA operator (MATLAB):
+    # https://www.mathworks.com/help/gads/genetic-algorithm-options.html
+    # Its weighted averages combine parents without adding frame-to-frame
+    # switches, helping preserve movement continuity.
     for i in range(0, len(parents) - 1, 2):
-        swap_mask = rng.random(parents.shape[1:]) < crossover_rate
+        if rng.random() < crossover_rate:
+            # One weight for the whole gait avoids switching parents between
+            # adjacent frames. Both children lie between their parents.
+            weight = rng.random()
+            difference = parents[i + 1] - parents[i]
+            offspring[i] = parents[i] + weight * difference
+            offspring[i + 1] = parents[i + 1] - weight * difference
 
-        offspring[i] = np.where(swap_mask, parents[i + 1], parents[i])
-        offspring[i + 1] = np.where(swap_mask, parents[i], parents[i + 1])
-
-    return offspring
+    # Guard against floating-point roundoff at a joint limit.
+    return np.clip(offspring, MIN_JOINT_ANGLES, MAX_JOINT_ANGLES)
 
 
 def mutate(

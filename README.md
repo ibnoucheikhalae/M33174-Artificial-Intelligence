@@ -76,8 +76,9 @@ added to each angle. `initial_std=0.01` means a noise standard deviation of 0.01
 Angles are clamped to their joint limits, and the first and last poses are fixed to SPREAD.
 
 This gives evolution a head start: it refines a noisy reference rather than discovering the
-walking cycle from scratch. Crossover still swaps individual alleles, and mutation still
-adds independent Gaussian changes; neither operator generates or smooths a trajectory.
+walking cycle from scratch. Crossover averages selected parents, and mutation adds
+independent Gaussian changes to selected angles. These operators use the existing population;
+the reference is used for initialization and scoring.
 
 `init_population`, `run_GA_training`, and `try_all_permutations` accept `initial_std`.
 Increase it to investigate harder starting populations, or pass `None` for independent
@@ -165,7 +166,7 @@ We compare two stochastic methods, roulette-wheel selection and tournament selec
 
 <!-- TODO: confirm the crossover operator and the definition of the rate below against the code. -->
 
-We use uniform crossover, following Heinen and Osório (2006a). The crossover rate \(p_c\) is the probability that a selected pair of parents is crossed at all. When they are, each gene of the child comes from either parent with equal probability. Otherwise the parents pass to the next generation unchanged. This is the convention of GAlib, the library Heinen and Osório built on.
+We use arithmetic crossover: with probability \(p_c\), a parent pair produces two weighted averages, using one random weight \(a\) between 0 and 1. The children are \(A+a(B-A)\) and \(B-a(B-A)\). The same weight applies across the gait, so crossover does not create abrupt switches between parents at adjacent frames. This is a standard operator for real-valued GAs; see [MATLAB's arithmetic crossover documentation](https://www.mathworks.com/help/gads/genetic-algorithm-options.html). Uncrossed pairs and an unpaired final individual are copied. Joint limits and common fixed endpoints are preserved. The rate now applies to a parent pair, rather than to each angle independently.
 
 Heinen and Osório (2006a) used \(p_c = 0.6\) but gave no justification, and none of the other papers we read justified theirs. We therefore test \(p_c \in \{0.2, 0.4, 0.6, 0.8\}\) rather than copying one value (section 8).
 
