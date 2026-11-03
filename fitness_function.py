@@ -10,7 +10,7 @@ from GA import (
 
 POSE_SHAPE = (NUM_LEGS, NUM_LEG_SEGS)
 GAIT_SHAPE = (NUM_FRAMES, *POSE_SHAPE)
-KEYFRAMES = np.array([0, 80, 200, 299])
+
 ANGLE_RANGES = MAX_JOINT_ANGLES - MIN_JOINT_ANGLES
 
 # Mirror-pair indexing: left leg i pairs with right leg RIGHT_MIRRORED[i].
@@ -24,29 +24,12 @@ RIGHT_MIRRORED = [7, 6, 5, 4]  # R1..R4, so index i pairs with left i
 MIRROR_SIGNS = np.asarray((-1.0, -1.0, -1.0), dtype=np.float64)
 MIRROR_OFFSETS = np.asarray((0.0, 0.0, 0.0), dtype=np.float64)
 
-# Target poses. START/END are still stubs until Prince/Alae finalise them;
-
 # Target poses extracted from the Webots controller.
 # Leg order: L1, L2, L3, L4, R4, R3, R2, R1
 # Joint order: hip, thigh, knee
 # All angles are in radians.
 
-# Frame 0: Initial standing position
-START = np.array(
-    [
-        [0.00, -1.3056, 0.8156],  # L1
-        [0.00, -1.3056, 0.8156],  # L2
-        [0.00, -1.3056, 0.8156],  # L3
-        [0.00, -1.3056, 0.8156],  # L4
-        [0.00, 1.3056, -0.8156],  # R4
-        [0.00, 1.3056, -0.8156],  # R3
-        [0.00, 1.3056, -0.8156],  # R2
-        [0.00, 1.3056, -0.8156],  # R1
-    ],
-    dtype=float,
-)
-
-# Frame 80: Legs fully spread
+# Start / end pose
 SPREAD = np.array(
     [
         [-0.48, -1.3056, 0.8156],  # L1
@@ -61,7 +44,7 @@ SPREAD = np.array(
     dtype=float,
 )
 
-# Frame 200: Legs brought closer into pairs
+# Mid pose
 CLOSE = np.array(
     [
         [0.24, -1.3056, 0.8156],  # L1
@@ -76,14 +59,11 @@ CLOSE = np.array(
     dtype=float,
 )
 
-# Frame 299: Hold the final close position
-END = CLOSE.copy()
+# Combine the target poses
+TARGET_POSES = np.stack([SPREAD, CLOSE, SPREAD])
+KEYFRAMES = np.array([0, 150, 299])
 
-# Combine the four target poses
-TARGET_POSES = np.stack([START, SPREAD, CLOSE, END])
-
-TARGET_STEP_SIZES = np.abs(CLOSE - START) / 150.
-
+TARGET_STEP_SIZES = np.abs(CLOSE - SPREAD) / 150.
 
 # Fitness = BASE_FITNESS - (weighted sum of penalties). A perfect gait scores
 # BASE_FITNESS; every penalty subtracts from it. Weights: tune later.
