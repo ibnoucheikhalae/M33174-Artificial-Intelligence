@@ -3,7 +3,6 @@ import unittest
 import numpy as np
 
 from fitness_function import (
-    ANGLE_RANGES,
     GAIT_SHAPE,
     INTERPOLATED_REFERNCE_GAIT,
     step_size_penalty,
@@ -20,7 +19,7 @@ class TestStepSizePenalty(unittest.TestCase):
                 # Alternating poses exercise both directions within joint limits.
                 # Reversing the steps must incur an error, even at the same speed.
                 gait = scale * target
-                expected = np.mean(((scale - 1) * 0.01 / ANGLE_RANGES) ** 2)
+                expected = abs(scale - 1) * 0.01
                 result = step_size_penalty(gait, target)
                 self.assertIsInstance(result, float)
                 self.assertAlmostEqual(result, expected, delta=1e-15)

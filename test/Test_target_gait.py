@@ -12,7 +12,7 @@ class TestTargetGait(unittest.TestCase):
         self.assertEqual(f.target_gait_penalty(target), 0.0)
         gait = target.copy()
         gait[42, 0, 0] += 0.1  # An error away from the keyframes must count too.
-        expected = 0.1 / (f.ANGLE_RANGES[0, 0] * np.sqrt(gait.size))
+        expected = 0.1 / np.sqrt(gait.size)
         self.assertAlmostEqual(f.target_gait_penalty(gait), expected, delta=1e-15)
         self.assertEqual(f.target_gait_penalty(gait, gait), 0.0)
 

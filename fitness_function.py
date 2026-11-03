@@ -62,7 +62,7 @@ _reference_phase = np.interp(np.arange(NUM_FRAMES), KEYFRAMES, [0.0, 1.0, 0.0])
 _reference_progress = 3 * _reference_phase**2 - 2 * _reference_phase**3
 # pose = start + progress * displacement. The extra axes broadcast one progress
 # value per frame over all 8 legs and 3 joints, producing shape (300, 8, 3).
-# This is a scoring reference; the GA still evolves every frame independently.
+# This is a scoring reference; every frame remains part of the evolved chromosome.
 INTERPOLATED_REFERNCE_GAIT = (
     SPREAD + _reference_progress[:, None, None] * (CLOSE - SPREAD)
 )
@@ -74,6 +74,14 @@ TARGET_WEIGHT = 0.5
 STEP_SIZE_WEIGHT = 0.3
 SYMMETRY_WEIGHT = 0.1
 ACCELERATION_WEIGHT = 0.1
+
+# Helpers return raw RMS errors in the units below. fitness_function applies
+# weight / tolerance, so an error equal to its tolerance costs that term's weight.
+# These are soft scoring scales, not hard limits; fitness may become negative.
+TARGET_ANGLE_TOLERANCE = 0.1  # radians
+STEP_SIZE_TOLERANCE = 0.01  # radians per frame
+ACCELERATION_TOLERANCE = 0.01  # radians per frame squared
+SYMMETRY_TOLERANCE = 0.1  # radians
 
 
 # --- Validation ------------------------------------------------------------
@@ -90,14 +98,14 @@ def _validate_angles(angles: NDArray[np.float64], shape: tuple[int, ...]) -> Non
 def target_gait_penalty(
     gait: NDArray[np.float64], target: NDArray[np.float64] = INTERPOLATED_REFERNCE_GAIT
 ) -> float:
-    """Root-mean-square of range-normalised joint errors across the whole gait.
+    """RMS angular error across the whole gait, in radians.
 
     Zero means every frame matches the target. Taking the square root keeps
-    the penalty on the scale of the normalised angular errors.
+    the penalty on the scale of the angular errors.
     """
     _validate_angles(gait, GAIT_SHAPE)
     _validate_angles(target, GAIT_SHAPE)
-    error = (gait - target) / ANGLE_RANGES
+    error = gait - target
     return float(np.sqrt(np.mean(error**2)))
 
 
@@ -105,18 +113,18 @@ def acceleration_penalty(gait: NDArray[np.float64]) -> float:
     """
     Smoothness measure. Ensures step size is consistent between frames.
 
-    Mean squared second difference penalises abrupt changes in velocity.
+    RMS second difference measures changes in velocity, in radians per frame squared.
     """
     _validate_angles(gait, GAIT_SHAPE)
     second_diff = np.diff(gait, n=2, axis=0)
-    return float(np.mean((second_diff / (2 * ANGLE_RANGES)) ** 2))
+    return float(np.sqrt(np.mean(second_diff**2)))
 
 
 def step_size_penalty(
     gait: NDArray[np.float64],
     target: NDArray[np.float64] = INTERPOLATED_REFERNCE_GAIT,
 ) -> float:
-    """Mean squared, range-normalised error from signed target steps.
+    """RMS signed step error, in radians per frame.
 
     First differences give the angular change per frame. Keeping their sign
     penalises movement in the wrong direction as well as at the wrong speed.
@@ -125,8 +133,8 @@ def step_size_penalty(
     _validate_angles(target, GAIT_SHAPE)
     target_step_sizes = np.diff(target, axis=0)
     step_sizes = np.diff(gait, axis=0)
-    error = (step_sizes - target_step_sizes) / ANGLE_RANGES
-    return float(np.mean(error**2))
+    error = step_sizes - target_step_sizes
+    return float(np.sqrt(np.mean(error**2)))
 
 
 def symmetry_penalty(
@@ -139,8 +147,8 @@ def symmetry_penalty(
     gait shape (300, 8, 3), radians. Stored order: L1, L2, L3, L4, R4, R3, R2, R1.
     Each right leg is mapped into the left-leg convention
     (right * mirror_signs + mirror_offsets) and compared with its left partner
-    (L1<->R1, L2<->R2, L3<->R3, L4<->R4) frame by frame. Errors are scaled by
-    each joint's permitted range, then squared and averaged.
+    (L1<->R1, L2<->R2, L3<->R3, L4<->R4) frame by frame. Returns the RMS
+    angular error in radians.
     """
     _validate_angles(gait, GAIT_SHAPE)
 
@@ -157,8 +165,8 @@ def symmetry_penalty(
     right = gait[:, RIGHT_MIRRORED, :]
 
     expected_left = right * mirror_signs + mirror_offsets
-    error = (left - expected_left) / ANGLE_RANGES[LEFT_LEGS]
-    return float(np.mean(error**2))
+    error = left - expected_left
+    return float(np.sqrt(np.mean(error**2)))
 
 
 # --- Combined fitness ---------------------------------------------------------
@@ -171,17 +179,17 @@ def fitness_function(
     gait: (300, 8, 3) joint angles in radians.
     targets: (300, 8, 3) reference gait compared against every frame.
     fitness = BASE_FITNESS
-            - TARGET_WEIGHT     * target_gait_penalty
-            - STEP_SIZE_WEIGHT  * step_size_penalty
-            - SYMMETRY_WEIGHT   * symmetry_penalty
-            - ACCELERATION_WEIGHT * acceleration_penalty
+            - (TARGET_WEIGHT / TARGET_ANGLE_TOLERANCE) * target_gait_penalty
+            - (STEP_SIZE_WEIGHT / STEP_SIZE_TOLERANCE) * step_size_penalty
+            - (SYMMETRY_WEIGHT / SYMMETRY_TOLERANCE) * symmetry_penalty
+            - (ACCELERATION_WEIGHT / ACCELERATION_TOLERANCE) * acceleration_penalty
 
     The best possible score is BASE_FITNESS; the result can be negative.
     """
     return float(
         BASE_FITNESS
-        - TARGET_WEIGHT * target_gait_penalty(gait, targets)
-        - SYMMETRY_WEIGHT * symmetry_penalty(gait)
-        - STEP_SIZE_WEIGHT * step_size_penalty(gait, targets)
-        - ACCELERATION_WEIGHT * acceleration_penalty(gait)
+        - (TARGET_WEIGHT / TARGET_ANGLE_TOLERANCE) * target_gait_penalty(gait, targets)
+        - (SYMMETRY_WEIGHT / SYMMETRY_TOLERANCE) * symmetry_penalty(gait)
+        - (STEP_SIZE_WEIGHT / STEP_SIZE_TOLERANCE) * step_size_penalty(gait, targets)
+        - (ACCELERATION_WEIGHT / ACCELERATION_TOLERANCE) * acceleration_penalty(gait)
     )
