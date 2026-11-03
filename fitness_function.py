@@ -88,9 +88,10 @@ TARGET_STEP_SIZES = np.abs(CLOSE - START) / 150.
 # Fitness = BASE_FITNESS - (weighted sum of penalties). A perfect gait scores
 # BASE_FITNESS; every penalty subtracts from it. Weights: tune later.
 BASE_FITNESS = 1.0
-TARGET_WEIGHT = 0.6
-SMOOTHNESS_WEIGHT = 0.2
-SYMMETRY_WEIGHT = 0.2
+TARGET_WEIGHT = 0.5
+STEP_SIZE_WEIGHT = 0.3
+SYMMETRY_WEIGHT = 0.1
+ACCELERATION_WEIGHT = 0.1
 
 
 # --- Validation ------------------------------------------------------------
@@ -120,7 +121,7 @@ def target_pose_penalty(
     return float(np.sqrt(np.mean(error**2)))
 
 
-def smoothness_penalty(gait: NDArray[np.float64]) -> float:
+def acceleration_penalty(gait: NDArray[np.float64]) -> float:
     """
     Smoothness measure. Ensures step size is consistent between frames.
 
@@ -132,7 +133,10 @@ def smoothness_penalty(gait: NDArray[np.float64]) -> float:
 
 
 def step_size_penalty(gait: NDArray[np.float64]) -> float:
-    """Mean squared, range-normalised error from target absolute step sizes."""
+    """
+    Aim for step size to be close to smooth interpolation.
+    Mean squared, range-normalised error from target absolute step sizes.
+    """
     _validate_angles(gait, GAIT_SHAPE)
     step_sizes = np.abs(np.diff(gait, axis=0))
     error = (step_sizes - TARGET_STEP_SIZES) / ANGLE_RANGES
@@ -182,7 +186,7 @@ def fitness_function(
     targets: (4, 8, 3) target poses compared against frames 0, 80, 200, 299.
     fitness = BASE_FITNESS
             - TARGET_WEIGHT     * target_pose_penalty
-            - SMOOTHNESS_WEIGHT * smoothness_penalty
+            - STEP_SIZE_WEIGHT  * smoothness_penalty
             - SYMMETRY_WEIGHT   * symmetry_penalty
             - JERK_WEIGHT       * jerk_penalty
 
@@ -192,5 +196,6 @@ def fitness_function(
         BASE_FITNESS
         - TARGET_WEIGHT * target_pose_penalty(gait, targets)
         - SYMMETRY_WEIGHT * symmetry_penalty(gait)
-        - SMOOTHNESS_WEIGHT * step_size_penalty(gait)
+        - STEP_SIZE_WEIGHT * step_size_penalty(gait)
+        - ACCELERATION_WEIGHT * acceleration_penalty(gait)
     )
