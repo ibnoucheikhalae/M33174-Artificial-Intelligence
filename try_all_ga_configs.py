@@ -78,11 +78,16 @@ def summarise_generations(generations: NDArray[np.float64]) -> RunSummary:
     }
 
 
-def try_all_permutations(seed: int) -> Dict[ConfigKey, RunSummary]:
+def try_all_permutations(
+    seed: int, initial_std: Optional[float] = 0.01
+) -> Dict[ConfigKey, RunSummary]:
     """
     Returns a dictionary where the keys are the used settings and the values are the history
     of generations -- shape =
     (num_permutations, num_generations+1, population_size, NUM_FRAMES, NUM_LEGS, NUM_LEG_SEGS)
+
+    initial_std controls Gaussian noise around the reference (radians).
+    Pass None to compare against uniform random initialization.
     """
     all_permuations = {}
     for selection_method in SELECTION_METHODS:
@@ -102,6 +107,7 @@ def try_all_permutations(seed: int) -> Dict[ConfigKey, RunSummary]:
                         mutation_std=mutation_std,
                         selection_method=selection_method,
                         pop_seed=seed,
+                        initial_std=initial_std,
                     )
                     summary = summarise_generations(generations)
                     del generations

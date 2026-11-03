@@ -8,6 +8,25 @@ import fitness_function as f
 
 
 class TestTemporalGA(unittest.TestCase):
+    def test_init_population(self) -> None:
+        population = GA.init_population(10, seed=42)
+        np.testing.assert_array_equal(population, GA.init_population(10, seed=42))
+        for index in [0, -1]:
+            np.testing.assert_array_equal(
+                population[:, index], np.broadcast_to(GA.SPREAD, (10, 8, 3))
+            )
+        error = population[:, 1:-1] - f.INTERPOLATED_REFERNCE_GAIT[1:-1]
+        self.assertAlmostEqual(np.std(error), 0.01, delta=0.001)
+        exact = GA.init_population(2, seed=42, initial_std=0)
+        np.testing.assert_array_equal(exact, np.broadcast_to(f.INTERPOLATED_REFERNCE_GAIT, exact.shape))
+        uniform = GA.init_population(10, seed=42, initial_std=None)
+        self.assertGreater(np.std(np.diff(uniform[:, 1:-1], axis=1)), 0.5)
+        for invalid in [-1, np.nan, np.inf]:
+            with self.assertRaises(ValueError):
+                GA.init_population(2, initial_std=invalid)
+        self.assertTrue((population >= GA.MIN_JOINT_ANGLES).all())
+        self.assertTrue((population <= GA.MAX_JOINT_ANGLES).all())
+
     def test_roulette_selection(self) -> None:
         population = np.zeros((2, *f.GAIT_SHAPE))
         population[1] = 0.1

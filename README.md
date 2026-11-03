@@ -71,16 +71,17 @@ Each individual carries a single chromosome, so here chromosome and genotype mea
 
 ## 3. Initial population
 
-The initial population is random: every gene is drawn from within its joint's valid range. Heinen and Osório (2006a) and Manglik, Gupta and Bhanot (2016) also start from random populations.
+The default population is seeded from the reference gait, with independent Gaussian noise
+added to each angle. `initial_std=0.01` means a noise standard deviation of 0.01 radians.
+Angles are clamped to their joint limits, and the first and last poses are fixed to SPREAD.
 
-We considered generating individuals from a sinusoidal joint-angle formula:
+This gives evolution a head start: it refines a noisy reference rather than discovering the
+walking cycle from scratch. Crossover still swaps individual alleles, and mutation still
+adds independent Gaussian changes; neither operator generates or smooths a trajectory.
 
-\[ \theta(t) = C + A \sin(\omega t + \varphi) \]
-
-Here \(C\) is the central angle, \(A\) the amplitude, \(\omega\) the angular frequency and \(\varphi\) the phase offset. We decided against it. The formula hard-codes a walking pattern, and each term works like a slider: a higher frequency walks faster, a larger amplitude takes larger steps. Seeding from it would mean the GA starts from a gait we designed, rather than discovering one. Vice, Sukthankar and Douglas (2022) take the seeded route instead, starting from mutations of a hand-tuned gait.
-
-<!-- TODO: cite the paper this formula came from. Vice, Sukthankar and Douglas (2022) use the same form with cosine, α·cos(p·t + φ) + v. -->
-<!-- TODO: decide whether the formula is still used to define target poses for the fitness function (section 4.5). -->
+`init_population`, `run_GA_training`, and `try_all_permutations` accept `initial_std`.
+Increase it to investigate harder starting populations, or pass `None` for independent
+uniform initialization. Use the same initial standard deviation when comparing configurations.
 
 ## 4. Fitness function
 

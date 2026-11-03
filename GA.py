@@ -40,7 +40,9 @@ SPREAD = np.array(
 
 
 #! Assuming float64, we may be able to optimise this
-def init_population(n: int, seed: Optional[int] = None) -> NDArray[np.float64]:
+def init_population(
+    n: int, seed: Optional[int] = None, initial_std: Optional[float] = 0.01
+) -> NDArray[np.float64]:
     """
     Initialise a population of n individuals
     The structure of each individual is described below:
@@ -67,16 +69,24 @@ def init_population(n: int, seed: Optional[int] = None) -> NDArray[np.float64]:
         IndividualArray: shape = (300, 8, 3)
         PopulationArray: shape = (n, 300, 8, 3)
 
-    The function generates a population of n individuals where each joint angle is a random value
-    between the MIN_JOINT_ANGLE and MAX_JOINT_ANGLE control variables.
-    It then asserts the population matches the expected shape and returns it
+    Add independent Gaussian noise to the reference, then enforce joint limits.
+    initial_std is in radians; None uses uniform random angles for comparison.
+    Only the required start/end poses remain fixed during evolution.
     """
     rng = np.random.default_rng(seed)
-    init_population = rng.uniform(
-        MIN_JOINT_ANGLES, MAX_JOINT_ANGLES, size=(n, NUM_FRAMES, NUM_LEGS, NUM_LEG_SEGS)
-    )
+    shape = (n, NUM_FRAMES, NUM_LEGS, NUM_LEG_SEGS)
+    if initial_std is None:
+        population = rng.uniform(MIN_JOINT_ANGLES, MAX_JOINT_ANGLES, size=shape)
+    else:
+        if not np.isfinite(initial_std) or initial_std < 0:
+            raise ValueError("initial_std must be finite and non-negative")
+        # Defer the import: fitness_function imports the joint constants from GA.
+        from fitness_function import INTERPOLATED_REFERNCE_GAIT
 
-    return init_population
+        population = INTERPOLATED_REFERNCE_GAIT + rng.normal(0.0, initial_std, size=shape)
+        population = np.clip(population, MIN_JOINT_ANGLES, MAX_JOINT_ANGLES)
+    population[:, [0, -1]] = SPREAD
+    return population
 
 
 def evaluate_fitness(pop: NDArray[np.float64]) -> NDArray[np.float64]:
@@ -234,6 +244,8 @@ def mutate(
     # Generate one random number per gene.
     # Comparing against mutation rate gives a boolean mask: True means that gene mutates
     mask = rng.random(pop.shape) < mutation_rate
+    # Boundary poses are fixed requirements, not genes to optimise.
+    mask[:, [0, -1]] = False
 
     # Generate one Gaussian step per gene (normal), centered on 0 to allow for positive or negative
     # mutation_std controls the typical step size in radians
@@ -256,6 +268,7 @@ def run_GA_training(
         [NDArray[np.float64], NDArray[np.float64], int], NDArray[np.float64]
     ],
     pop_seed: Optional[int] = None,
+    initial_std: Optional[float] = 0.01,
 ) -> NDArray[np.float64]:
     """
     Runs the actual genetic algorithim training using the input control variables.
@@ -270,13 +283,15 @@ def run_GA_training(
         2.e) pop = new_pop
     3) Return all generations for exterior data analysis
 
+    initial_std sets the initial Gaussian noise in radians; None starts uniformly.
+
     Returns:
         generations: NDArray[np.float64]; shape = (num_generations+1, population_size, NUM_FRAMES, NUM_LEGS, NUM_LEG_SEGS)
             - Every generation of this training run in order
     """
 
     # 1) Initialise Population
-    pop = init_population(population_size, pop_seed)
+    pop = init_population(population_size, pop_seed, initial_std)
 
     # Extra step: Store all generations so we can do data analysis on them later
     # num_generations+1 as initial population is considered generation 0
