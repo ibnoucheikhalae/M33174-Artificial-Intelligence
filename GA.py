@@ -23,6 +23,21 @@ MAX_JOINT_ANGLES = np.array([LEFT_MAX] * 4 + [RIGHT_MAX] * 4)
 MUTATION_RANGE_STEP_MIN = 1
 MUTATION_RANGE_STEP_MAX = 2
 
+# Start / end pose
+SPREAD = np.array(
+    [
+        [-0.48, -1.3056, 0.8156],  # L1
+        [-0.20, -1.3056, 0.8156],  # L2
+        [0.20, -1.3056, 0.8156],  # L3
+        [0.48, -1.3056, 0.8156],  # L4
+        [-0.48, 1.3056, -0.8156],  # R4
+        [-0.20, 1.3056, -0.8156],  # R3
+        [0.20, 1.3056, -0.8156],  # R2
+        [0.48, 1.3056, -0.8156],  # R1
+    ],
+    dtype=float,
+)
+
 
 #! Assuming float64, we may be able to optimise this
 def init_population(n: int, seed: Optional[int] = None) -> NDArray[np.float64]:

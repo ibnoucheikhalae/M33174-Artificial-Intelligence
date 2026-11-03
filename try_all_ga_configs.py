@@ -40,12 +40,12 @@ from GA import (
 
 SELECTION_METHODS = [tournament_selection, roulette_selection]
 
-CO_RATES = [0.1, 0.2, 0.4, 0.6, 0.8]
+CO_RATES = [0.05, 0.1, 0.2]
 
 # Discrete values to save on computation time
-MUT_RATES = [0.01, 0.02, 0.05, 0.1, 0.15]
+MUT_RATES = [0.001, 0.005, 0.01]
 
-MUT_STDS = [0.025, 0.05, 0.1, 0.2, 0.4]
+MUT_STDS = [0.002, 0.005, 0.01]
 
 ConfigKey = tuple[str, float, float, float]
 

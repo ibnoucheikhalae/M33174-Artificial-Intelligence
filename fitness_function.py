@@ -6,6 +6,7 @@ from GA import (
     NUM_LEGS,
     MIN_JOINT_ANGLES,
     MAX_JOINT_ANGLES,
+    SPREAD,
 )
 
 POSE_SHAPE = (NUM_LEGS, NUM_LEG_SEGS)
@@ -28,21 +29,6 @@ MIRROR_OFFSETS = np.asarray((0.0, 0.0, 0.0), dtype=np.float64)
 # Leg order: L1, L2, L3, L4, R4, R3, R2, R1
 # Joint order: hip, thigh, knee
 # All angles are in radians.
-
-# Start / end pose
-SPREAD = np.array(
-    [
-        [-0.48, -1.3056, 0.8156],  # L1
-        [-0.20, -1.3056, 0.8156],  # L2
-        [0.20, -1.3056, 0.8156],  # L3
-        [0.48, -1.3056, 0.8156],  # L4
-        [-0.48, 1.3056, -0.8156],  # R4
-        [-0.20, 1.3056, -0.8156],  # R3
-        [0.20, 1.3056, -0.8156],  # R2
-        [0.48, 1.3056, -0.8156],  # R1
-    ],
-    dtype=float,
-)
 
 # Mid pose
 CLOSE = np.array(
