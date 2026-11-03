@@ -82,6 +82,8 @@ END = CLOSE.copy()
 # Combine the four target poses
 TARGET_POSES = np.stack([START, SPREAD, CLOSE, END])
 
+TARGET_STEP_SIZES = np.abs(CLOSE - START) / 150.
+
 
 # Fitness = BASE_FITNESS - (weighted sum of penalties). A perfect gait scores
 # BASE_FITNESS; every penalty subtracts from it. Weights: tune later.
@@ -119,13 +121,22 @@ def target_pose_penalty(
 
 
 def smoothness_penalty(gait: NDArray[np.float64]) -> float:
-    """Alternative smoothness measure (weight is 0 by default).
+    """
+    Smoothness measure. Ensures step size is consistent between frames.
 
     Mean squared second difference penalises abrupt changes in velocity.
     """
     _validate_angles(gait, GAIT_SHAPE)
     second_diff = np.diff(gait, n=2, axis=0)
     return float(np.mean((second_diff / (2 * ANGLE_RANGES)) ** 2))
+
+
+def step_size_penalty(gait: NDArray[np.float64]) -> float:
+    """Mean squared, range-normalised error from target absolute step sizes."""
+    _validate_angles(gait, GAIT_SHAPE)
+    step_sizes = np.abs(np.diff(gait, axis=0))
+    error = (step_sizes - TARGET_STEP_SIZES) / ANGLE_RANGES
+    return float(np.mean(error**2))
 
 
 def symmetry_penalty(
@@ -181,5 +192,5 @@ def fitness_function(
         BASE_FITNESS
         - TARGET_WEIGHT * target_pose_penalty(gait, targets)
         - SYMMETRY_WEIGHT * symmetry_penalty(gait)
-        - SMOOTHNESS_WEIGHT * smoothness_penalty(gait)
+        - SMOOTHNESS_WEIGHT * step_size_penalty(gait)
     )
