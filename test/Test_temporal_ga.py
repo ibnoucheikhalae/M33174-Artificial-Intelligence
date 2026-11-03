@@ -8,6 +8,27 @@ import fitness_function as f
 
 
 class TestTemporalGA(unittest.TestCase):
+    def test_roulette_selection(self) -> None:
+        population = np.zeros((2, *f.GAIT_SHAPE))
+        population[1] = 0.1
+        selected = GA.roulette_selection(population, np.array([-2.0, -1.0]), 500)
+        self.assertGreater(np.count_nonzero(selected[:, 0, 0, 0]), 350)
+        selected = GA.roulette_selection(population, np.zeros(2), 10)
+        self.assertTrue(np.isfinite(selected).all())
+        self.assertTrue(np.isin(selected, [0.0, 0.1]).all())
+
+    def test_tournament_selection(self) -> None:
+        population = np.zeros((4, *f.GAIT_SHAPE))
+        population[:, 1, 0, 0] = np.arange(4)
+        fitness = np.arange(4, dtype=float)
+        selected = GA.tournament_selection(population, fitness, 100, tournament_size=100)
+        self.assertTrue((selected[:, 1, 0, 0] == 3).all())
+        selected = GA.tournament_selection(population, fitness, 100, tournament_size=1)
+        self.assertGreater(len(np.unique(selected[:, 1, 0, 0])), 1)
+        for invalid in [0, -1]:
+            with self.assertRaises(ValueError):
+                GA.tournament_selection(population, fitness, 10, tournament_size=invalid)
+
     def test_fitness_function_rejects_jitter(self) -> None:
         reference = f.INTERPOLATED_REFERNCE_GAIT
         jittery = reference.copy()

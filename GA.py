@@ -116,7 +116,10 @@ def roulette_selection(
     """
     selected_parents = np.empty((n,) + pop.shape[1:], dtype=np.float64)
 
-    normalised = fitness / fitness.sum()
+    # Penalty-based fitness can be negative. Shifting preserves the ordering;
+    # epsilon also gives equal-fitness populations a valid uniform distribution.
+    weights = fitness - min(0.0, float(fitness.min())) + np.finfo(float).eps
+    normalised = weights / weights.sum()
     cumulative_fitness = np.cumsum(normalised)
     cumulative_fitness[-1] = 1.0  # Force last value to 1 to avoid 0.999999...
 
@@ -137,7 +140,7 @@ def roulette_selection(
 
 
 def tournament_selection(
-    pop: NDArray[np.float64], fitness: NDArray[np.float64], n: int
+    pop: NDArray[np.float64], fitness: NDArray[np.float64], n: int, tournament_size: int = 2
 ) -> NDArray[np.float64]:
     """
     Uses tournament selection to select which individuals of the population will proceed to
@@ -150,18 +153,21 @@ def tournament_selection(
             - The fitness values of the individuals within that population
         n: int;
             - The number of individuals selected
+        tournament_size: int;
+            - Candidates sampled per tournament; larger values increase selection pressure
 
     Returns:
         selected_parents: NDArray[np.float64]; shape = (n, NUM_FRAMES, NUM_LEGS, NUM_LEG_SEGS)
     """
+    if tournament_size < 1:
+        raise ValueError("tournament_size must be positive")
     selected_parents = np.empty(
         (n,) + pop.shape[1:], dtype=np.float64
     )  # (n,) is python 1-tuple weirdness
     for i in range(n):
-        idx1 = random.randrange(fitness.shape[0])
-        idx2 = random.randrange(fitness.shape[0])
-
-        selected_parents[i] = pop[idx1 if fitness[idx1] > fitness[idx2] else idx2]
+        candidates = random.choices(range(len(fitness)), k=tournament_size)
+        winner = max(candidates, key=lambda index: fitness[index])
+        selected_parents[i] = pop[winner]
 
     if selected_parents.shape != (n, NUM_FRAMES, NUM_LEGS, NUM_LEG_SEGS):
         raise ValueError(
