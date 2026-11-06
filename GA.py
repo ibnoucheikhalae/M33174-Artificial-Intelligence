@@ -9,19 +9,15 @@ NUM_FRAMES = 300
 NUM_LEGS = 8
 NUM_LEG_SEGS = 3
 
-RIGHT_MIN = [-1.57, -1.57, -2.0]
+RIGHT_MIN = [-1.57, -1.57, -1.0]
 RIGHT_MAX = [1.57, 1.57, 1.0]
 
-LEFT_MIN = [-1.57, -1.57, -2.0]
+LEFT_MIN = [-1.57, -1.57, -1.0]
 LEFT_MAX = [1.57, 1.57, 1.0]
 
 # L1, L2, L3, L4, R4, R3, R2, R1 : Based on the controller
 MIN_JOINT_ANGLES = np.array([LEFT_MIN] * 4 + [RIGHT_MIN] * 4)
 MAX_JOINT_ANGLES = np.array([LEFT_MAX] * 4 + [RIGHT_MAX] * 4)
-
-# Radians, taken from the smallest scalar values in angle min/max's -- this might be wrong
-MUTATION_RANGE_STEP_MIN = 1
-MUTATION_RANGE_STEP_MAX = 2
 
 
 #! Assuming float64, we may be able to optimise this
@@ -65,14 +61,9 @@ def init_population(n: int, seed: Optional[int] = None) -> NDArray[np.float64]:
 
 
 def evaluate_fitness(pop: NDArray[np.float64]) -> NDArray[np.float64]:
-    """
-    Our fitness function. Evaluates the fitness of each individual in a population.
-    Takes in a population and returns an array consisting of one fitness value per individual.
-    """
-    # Defer this import because fitness_function imports the joint constants from GA.
-    from fitness_function import fitness_function
+    from fitness_function import fitness_function_batch
 
-    fitness = np.array([fitness_function(gait) for gait in pop])
+    fitness = fitness_function_batch(pop)
 
     if len(fitness) != len(pop):
         raise ValueError(
@@ -121,108 +112,122 @@ def roulette_selection(
     return selected_parents
 
 
+TOURNAMENT_SIZE = 3
+ELITE_FRACTION = 0.05
+
+
 def tournament_selection(
-    pop: NDArray[np.float64], fitness: NDArray[np.float64], n: int
+    pop: NDArray[np.float64],
+    fitness: NDArray[np.float64],
+    n: int,
+    tournament_size: int = TOURNAMENT_SIZE,
 ) -> NDArray[np.float64]:
     """
-    Uses tournament selection to select which individuals of the population will proceed to
-    crossover.
+    Tournament selection: for each parent, pick tournament_size random individuals
+    and keep the fittest.
 
-    Args:
-        pop: NDArray[np.float64]; shape = (population_size, NUM_FRAMES, NUM_LEGS, NUM_LEG_SEGS)
-            - The population to select from
-        fitness: NDArray[np.float64]; shape = (population_size)
-            - The fitness values of the individuals within that population
-        n: int;
-            - The number of individuals selected
-
-    Returns:
-        selected_parents: NDArray[np.float64]; shape = (n, NUM_FRAMES, NUM_LEGS, NUM_LEG_SEGS)
+    Returns: selected parents, shape (n, NUM_FRAMES, NUM_LEGS, NUM_LEG_SEGS)
     """
-    selected_parents = np.empty(
-        (n,) + pop.shape[1:], dtype=np.float64
-    )  # (n,) is python 1-tuple weirdness
-    for i in range(n):
-        idx1 = random.randrange(fitness.shape[0])
-        idx2 = random.randrange(fitness.shape[0])
-
-        selected_parents[i] = pop[idx1 if fitness[idx1] > fitness[idx2] else idx2]
-
-    if selected_parents.shape != (n, NUM_FRAMES, NUM_LEGS, NUM_LEG_SEGS):
-        raise ValueError(
-            f"Selected Parents wrong shape! Expected: {(n, NUM_FRAMES, NUM_LEGS, NUM_LEG_SEGS)}; Actual: {selected_parents.shape};"
-        )
-    return selected_parents
+    rng = np.random.default_rng()
+    contenders = rng.integers(0, len(fitness), size=(n, tournament_size))
+    winners = contenders[np.arange(n), np.argmax(fitness[contenders], axis=1)]
+    return pop[winners].copy()
 
 
 def crossover(
-    parents: NDArray[np.float64], crossover_rate: float
+    parents: NDArray[np.float64],
+    crossover_rate: float,
+    blend_frames: int = 10,
 ) -> NDArray[np.float64]:
     """
-    Swap each pair's alleles independently with the given probability.
+    Two-point time-block crossover with soft seams.
 
-    Args:
-        parents: Population with shape (n, frames, legs, joints).
-        crossover_rate: Probability of swapping each allele, between 0 and 1.
+    Each consecutive pair of parents is crossed with probability
+    `crossover_rate`. If crossed, two cut points are chosen along the frame
+    axis. Inside the block the children swap parents; the edges of the block
+    are cross faded over ~`blend_frames` frames so there is no sudden jump.
 
-    Returns:
-        Offspring with the same shape as parents. If the population size is
-        odd, the final individual is copied unchanged.
+    Because each child frame is a weighted average of two in-range angles,
+    children stay inside the joint limits.
     """
     if not 0 <= crossover_rate <= 1:
         raise ValueError("crossover_rate must be between 0 and 1")
 
     rng = np.random.default_rng()
     offspring = parents.copy()
+    kernel = np.ones(blend_frames) / blend_frames
 
     for i in range(0, len(parents) - 1, 2):
-        swap_mask = rng.random(parents.shape[1:]) < crossover_rate
+        if rng.random() >= crossover_rate:
+            continue  # this pair passes through unchanged
 
-        offspring[i] = np.where(swap_mask, parents[i + 1], parents[i])
-        offspring[i + 1] = np.where(swap_mask, parents[i], parents[i + 1])
+        a, b = np.sort(rng.integers(0, NUM_FRAMES + 1, size=2))
+        if a == b:
+            continue
+
+        # 1 inside the block, 0 outside, then softened at the edges
+        w = np.zeros(NUM_FRAMES)
+        w[a:b] = 1.0
+        if blend_frames > 1:
+            padded = np.pad(w, blend_frames, mode="edge")
+            w = np.convolve(padded, kernel, mode="same")[blend_frames:-blend_frames]
+        w = w[:, None, None]  # broadcast over legs and joints
+
+        offspring[i] = (1 - w) * parents[i] + w * parents[i + 1]
+        offspring[i + 1] = w * parents[i] + (1 - w) * parents[i + 1]
 
     return offspring
+
+
+# These set how wide a bump can be, in frames. Each bump gets a random width between 10 and 60.
+BUMP_MIN_WIDTH = 10
+BUMP_MAX_WIDTH = 60
 
 
 def mutate(
     pop: NDArray[np.float64], mutation_rate: float, mutation_std: float
 ) -> NDArray[np.float64]:
     """
-    Mutate a population. Each individual has a mutation_rate% of being mutated.
+    Smooth mutation. Each joint of each leg of each individual has a
+    mutation_rate chance of getting a bump: a Gaussian-shaped offset added over a
+    window of frames, so the motion changes gently instead of jumping.
 
     Args:
-        pop: NDArray[np.float64]; shape = (population_size, NUM_FRAMES, NUM_LEGS, NUM_LEG_SEGS)
-            - The population to mutate
-        mutation_rate: float
-            - The percentage chance per individual for mutation (between 0 and 1)
-        mutation_std: float
-            - The standard deviation of mutation steps in radians
-
-    Returns:
-        mutated: NDArray[np.float64]; shape = (population_size, NUM_FRAMES, NUM_LEGS, NUM_LEG_SEGS)
-            - The mutated population
+        mutation_rate: chance (0 to 1) that each leg-joint gets a bump
+        mutation_std: standard deviation of the bump height in radians
     """
-
     if not 0 <= mutation_rate <= 1:
         raise ValueError("mutation_rate must be between 0 and 1")
     if not np.isfinite(mutation_std) or mutation_std < 0:
         raise ValueError("mutation_std must be finite and non-negative")
 
     rng = np.random.default_rng()
+    mutated = pop.copy()
+    frames = np.arange(NUM_FRAMES)
 
-    # Generate one random number per gene.
-    # Comparing against mutation rate gives a boolean mask: True means that gene mutates
-    mask = rng.random(pop.shape) < mutation_rate
+    hits = np.argwhere(rng.random((len(pop), NUM_LEGS, NUM_LEG_SEGS)) < mutation_rate)
+    for individual, leg, joint in hits:
+        centre = rng.integers(NUM_FRAMES)
+        width = rng.integers(BUMP_MIN_WIDTH, BUMP_MAX_WIDTH + 1)
+        height = rng.normal(0.0, mutation_std)
+        mutated[individual, :, leg, joint] += height * np.exp(
+            -0.5 * ((frames - centre) / width) ** 2
+        )
 
-    # Generate one Gaussian step per gene (normal), centered on 0 to allow for positive or negative
-    # mutation_std controls the typical step size in radians
-    steps = rng.normal(0.0, mutation_std, size=pop.shape)
-
-    # Apply the step wherever mask is true, use 0.0 elsewhere
-    mutated = pop + np.where(mask, steps, 0.0)
-
-    # Clamp each angle to its joints valid range
     return np.clip(mutated, MIN_JOINT_ANGLES, MAX_JOINT_ANGLES)
+
+
+def elitism(
+    pop: NDArray[np.float64],
+    fitness: NDArray[np.float64],
+    elite_fraction: float = ELITE_FRACTION,
+) -> NDArray[np.float64]:
+
+    elite_count = max(1, int(len(pop) * elite_fraction))
+
+    elite_indices = np.argsort(fitness)[-elite_count:]
+
+    return pop[elite_indices].copy()
 
 
 def run_GA_training(
@@ -266,12 +271,15 @@ def run_GA_training(
     for gen in range(
         1, num_generations + 1
     ):  # +1 because the initial population is gen 0
-        # 2.a) Evaluate Population Fitness
+        # Evaluate Population Fitness
         population_fitness = evaluate_fitness(pop)
 
-        # 2.b) Select Individuals for Crossover
-        # n=population_size means population won't shrink/grow
-        selected_parents = selection_method(pop, population_fitness, population_size)
+        elites = elitism(pop, population_fitness)
+
+        # Select Individuals for Crossover
+        selected_parents = selection_method(
+            pop, population_fitness, population_size - len(elites)
+        )
 
         # 2.c) Apply Crossover
         offspring = crossover(selected_parents, crossover_rate)
@@ -280,20 +288,19 @@ def run_GA_training(
         new_pop = mutate(offspring, mutation_rate, mutation_std)
 
         # 2.e)
-        pop = new_pop
+        pop = np.concatenate((elites, new_pop), axis=0)
         generations[gen] = pop
 
     return generations
 
 
 def main(printy: bool = False) -> int:
-    #! Note: Temporary stand-in values for now
     generations = run_GA_training(
-        population_size=20,
-        num_generations=20,
-        crossover_rate=0.1,
-        mutation_rate=0.01,
-        mutation_std=0.1,
+        population_size=100,
+        num_generations=50,
+        crossover_rate=0.6,
+        mutation_rate=0.05,
+        mutation_std=0.3,
         selection_method=tournament_selection,
     )
 
