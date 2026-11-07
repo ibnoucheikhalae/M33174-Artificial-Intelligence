@@ -49,7 +49,9 @@ def plot_spider_pose(angles: ArrayLike) -> None:
     if angles.size != n_legs * 3 or not (
         angles.ndim == 1 or (angles.ndim == 2 and 1 in angles.shape)
     ):
-        raise ValueError("Input angles must be a 1x24 vector (3 angles per leg for 8 legs).")
+        raise ValueError(
+            "Input angles must be a 1x24 vector (3 angles per leg for 8 legs)."
+        )
     angles = angles.reshape(-1)  # Squashes back into 1D array
 
     # Setup figure
@@ -136,7 +138,9 @@ def forward_leg_kinematics2(
     base_angle: float,
     joint_angles: ArrayLike,
     segment_lengths: ArrayLike,
-) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]:
+) -> tuple[
+    NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]
+]:
     """Compute the four joint positions of a three-segment leg.
 
     base_pos: [x,y,z] position of leg base on body
@@ -165,7 +169,9 @@ def forward_leg_kinematics2(
     coxa_elevation = np.deg2rad(30)  # fixed 30 degree upward pitch for coxa
 
     # Horizontal direction of coxa in XY plane based on base_angle + theta1
-    coxa_horiz_dir = np.array([np.cos(base_angle + theta1), np.sin(base_angle + theta1), 0])
+    coxa_horiz_dir = np.array(
+        [np.cos(base_angle + theta1), np.sin(base_angle + theta1), 0]
+    )
 
     # Rotation axis for pitch up: perpendicular to coxa horizontal direction in XY plane
     rot_axis = np.cross(coxa_horiz_dir, [0, 0, 1])
@@ -238,16 +244,25 @@ def axis_angle_rotation_matrix(axis: ArrayLike, angle: float) -> NDArray[np.floa
     return R
 
 
+START = np.array([[0.0, -1.07, -0.58]] * 8, dtype=np.float64)
+
+
 # --- Helper function: rotate a vector around an axis by an angle ---
 def rotate_vector(v: ArrayLike, axis: ArrayLike, angle: float) -> NDArray[np.float64]:
     """Rotate a vector around an axis by an angle in radians."""
     R = axis_angle_rotation_matrix(axis, angle)
-    v_rot = R @ np.asarray(v, dtype=float).reshape(3)  # @ Performs matrix multiplication
+    v_rot = R @ np.asarray(v, dtype=float).reshape(
+        3
+    )  # @ Performs matrix multiplication
     return v_rot
 
 
 if __name__ == "__main__":
-    # Example: replace these 24 values with your joint angles, in radians.
-    angles = np.zeros(24)
-    plot_spider_pose(angles)
+    spider_walk = np.load("best_gait.npy")
+    for frame in spider_walk:
+        plot_spider_pose(frame.flatten())
+        plt.show(block=False)
+        plt.pause(0.2)
+    # plot_spider_pose(START.flatten())
+
     plt.show()

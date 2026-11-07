@@ -1,5 +1,6 @@
 import numpy as np
 from numpy.typing import NDArray
+
 from GA import (
     NUM_FRAMES,
     NUM_LEG_SEGS,
@@ -8,178 +9,245 @@ from GA import (
     MAX_JOINT_ANGLES,
 )
 
+from spider_kinematics import calculate_foot_positions
+
 POSE_SHAPE = (NUM_LEGS, NUM_LEG_SEGS)
 GAIT_SHAPE = (NUM_FRAMES, *POSE_SHAPE)
-KEYFRAMES = np.array([0, 80, 200, 299])
+
 ANGLE_RANGES = MAX_JOINT_ANGLES - MIN_JOINT_ANGLES
 
-# Mirror-pair indexing: left leg i pairs with right leg RIGHT_MIRRORED[i].
-LEFT_LEGS = [0, 1, 2, 3]  # L1..L4
-RIGHT_MIRRORED = [7, 6, 5, 4]  # R1..R4, so index i pairs with left i
+FRONT_LEGS = [0, 1, 6, 7]  # L1, L2, R2, R1
+BACK_LEGS = [2, 3, 4, 5]  # L3, L4, R3, R4
+MIN_END_FEET = 2  # planted feet needed at EACH end
 
-# How a right-leg angle maps into the left-leg convention:
-#   expected_left = right * MIRROR_SIGNS + MIRROR_OFFSETS
-# All three joints flip sign (confirmed by the real midpoint pose: L1 vs R1 are
-# exact negatives), and the left/right joint limits are negations of each other.
-MIRROR_SIGNS = np.asarray((-1.0, -1.0, -1.0), dtype=np.float64)
-MIRROR_OFFSETS = np.asarray((0.0, 0.0, 0.0), dtype=np.float64)
+LEFT_LEGS = [0, 1, 2, 3]
+RIGHT_MIRRORED = [7, 6, 5, 4]
 
-# Target poses. START/END are still stubs until Prince/Alae finalise them;
+MIRROR_SIGNS = np.asarray((-1.0, 1.0, 1.0), dtype=np.float64)
 
-# Target poses extracted from the Webots controller.
-# Leg order: L1, L2, L3, L4, R4, R3, R2, R1
-# Joint order: hip, thigh, knee
-# All angles are in radians.
-
-# Frame 0: Initial standing position
-START = np.array(
-    [
-        [0.00, -1.3056, 0.8156],  # L1
-        [0.00, -1.3056, 0.8156],  # L2
-        [0.00, -1.3056, 0.8156],  # L3
-        [0.00, -1.3056, 0.8156],  # L4
-        [0.00, 1.3056, -0.8156],  # R4
-        [0.00, 1.3056, -0.8156],  # R3
-        [0.00, 1.3056, -0.8156],  # R2
-        [0.00, 1.3056, -0.8156],  # R1
-    ],
-    dtype=float,
-)
-
-# Frame 80: Legs fully spread
-SPREAD = np.array(
-    [
-        [-0.48, -1.3056, 0.8156],  # L1
-        [-0.20, -1.3056, 0.8156],  # L2
-        [0.20, -1.3056, 0.8156],  # L3
-        [0.48, -1.3056, 0.8156],  # L4
-        [-0.48, 1.3056, -0.8156],  # R4
-        [-0.20, 1.3056, -0.8156],  # R3
-        [0.20, 1.3056, -0.8156],  # R2
-        [0.48, 1.3056, -0.8156],  # R1
-    ],
-    dtype=float,
-)
-
-# Frame 200: Legs brought closer into pairs
-CLOSE = np.array(
-    [
-        [0.24, -1.3056, 0.8156],  # L1
-        [0.10, -1.3056, 0.8156],  # L2
-        [-0.10, -1.3056, 0.8156],  # L3
-        [-0.24, -1.3056, 0.8156],  # L4
-        [0.24, 1.3056, -0.8156],  # R4
-        [0.10, 1.3056, -0.8156],  # R3
-        [-0.10, 1.3056, -0.8156],  # R2
-        [-0.24, 1.3056, -0.8156],  # R1
-    ],
-    dtype=float,
-)
-
-# Frame 299: Hold the final close position
-END = CLOSE.copy()
-
-# Combine the four target poses
-TARGET_POSES = np.stack([START, SPREAD, CLOSE, END])
+TIME_AXIS = -3
+ALL_AXES = (-3, -2, -1)
 
 
-# Fitness = BASE_FITNESS - (weighted sum of penalties). A perfect gait scores
-# BASE_FITNESS; every penalty subtracts from it. Weights: tune later.
+START = np.array([[0.0, -1.2, -0.7]] * 8, dtype=np.float64)
+
+
+GROUND_Z = -0.8194
+GROUND_CONTACT_TOLERANCE = 0.05
+MIN_CONTACT_FEET = 4
+FORWARD_AXIS = 0  # walk along x axis
+FORWARD_SIGN = 1.0  # wlak direction
+FORWARD_DISTANCE_SCALE = 12
+
+
+AIR_Z_LIMIT = 0.3  # max height a foot may lift above the ground
+
+INVALID_FITNESS = -10.0  # used for invalid foot positions
+
 BASE_FITNESS = 1.0
-TARGET_WEIGHT = 0.6
-SMOOTHNESS_WEIGHT = 0.2
-SYMMETRY_WEIGHT = 0.2
+
+STEP_WEIGHT = 0.4
+SMOOTHNESS_WEIGHT = 0.7
+SYMMETRY_WEIGHT = 0.4
+STRIDE_WEIGHT = 0.3
+POSTURE_WEIGHT = 0.8
+START_WEIGHT = 0.6
+HEIGHT_WEIGHT = 1.0
+LOOP_WEIGHT = 0.6
+
+FORWARD_WEIGHT = 4.0
+BACKWARD_WEIGHT = 0.5
+CONTACT_WEIGHT = 1.0
+
+MAX_STEP = 0.04  # Speed limit on each joint
+MAX_ACCEL = 0.1  # checking the rate of change in max_step
+
+SYMMETRY_TOL = 0.1
+POSTURE_TOL = np.array([0.06, 0.2, 0.2], dtype=np.float64)
+START_TOL = 0.05
+BODY_SHIFT_TOL = 0.05  # how far the leg is fromn the ground
+
+MIN_HIP_SWING = 0.20
+
+HIP = 0  # index of th ehip joint
 
 
-# --- Validation ------------------------------------------------------------
-def _validate_angles(angles: NDArray[np.float64], shape: tuple[int, ...]) -> None:
-    if angles.shape != shape:
-        raise ValueError(f"Expected shape {shape}, got {angles.shape}")
-    if not np.isfinite(angles).all():
+# used to return zero when its with its tolerance an dgrowing penalty when it goes over
+def _excess(
+    value: NDArray[np.float64],
+    tolerance: float | NDArray[np.float64],
+) -> NDArray[np.float64]:
+    return np.asarray(
+        (np.maximum(0.0, value - tolerance) / tolerance) ** 2, dtype=np.float64
+    )
+
+
+def _validate_angles(gait: NDArray[np.float64]) -> None:
+    if gait.shape[-3:] != GAIT_SHAPE:
+        raise ValueError(f"Expected shape (..., {GAIT_SHAPE}), got {gait.shape}")
+
+    if not np.isfinite(gait).all():
         raise ValueError("Angles must be finite")
-    if (angles < MIN_JOINT_ANGLES).any() or (angles > MAX_JOINT_ANGLES).any():
+
+    if (gait < MIN_JOINT_ANGLES).any() or (gait > MAX_JOINT_ANGLES).any():
         raise ValueError("Angles must be within joint limits")
 
 
-# --- Reward / penalty helpers (each unit-testable on its own) ---------------
-def target_pose_penalty(
-    gait: NDArray[np.float64], targets: NDArray[np.float64]
-) -> float:
-    """How far the three keyframes (0, 150, 299) are from their targets.
+# makes a gait a circle instead of a line, used for the step_size_penalty and smoothess_penalty
+def _wrap(gait: NDArray[np.float64], extra: int) -> NDArray[np.float64]:
+    return np.concatenate([gait, gait[..., :extra, :, :]], axis=-3)
 
-    Root-mean-square of the range-normalised joint errors: 0 means every
-    keyframe matches exactly. RMSE (rather than MSE) is used so the penalty
-    is on a useful scale; with MSE a gait that completely ignores the
-    midpoint pose would only score ~0.03.
+
+def step_size_penalty(gait: NDArray[np.float64]):
+    step = np.abs(np.diff(_wrap(gait, 1), axis=TIME_AXIS)) / ANGLE_RANGES
+    mean_part = np.mean(_excess(step, MAX_STEP), axis=ALL_AXES)
+    worst = np.max(np.maximum(0.0, step - MAX_STEP) / MAX_STEP, axis=ALL_AXES)
+    return mean_part + 0.1 * worst
+
+
+def smoothness_penalty(gait: NDArray[np.float64]):
+    accel = np.abs(np.diff(_wrap(gait, 2), n=2, axis=TIME_AXIS)) / ANGLE_RANGES
+    return np.mean(_excess(accel, MAX_ACCEL), axis=ALL_AXES)
+
+
+def symmetry_penalty(gait: NDArray[np.float64]):
+    left = gait[..., LEFT_LEGS, :]
+    mirrored_right = gait[..., RIGHT_MIRRORED, :] * MIRROR_SIGNS
+    error = np.abs(left - mirrored_right) / ANGLE_RANGES[LEFT_LEGS]
+    return np.mean(_excess(error, SYMMETRY_TOL), axis=ALL_AXES)
+
+
+def stride_penalty(gait: NDArray[np.float64]):
+    hip = gait[..., HIP]  # (..., T, 8)
+    swing = (hip.max(axis=-2) - hip.min(axis=-2)) / ANGLE_RANGES[:, HIP]
+    shortfall = np.maximum(0.0, MIN_HIP_SWING - swing) / MIN_HIP_SWING
+    return np.mean(shortfall**2, axis=-1)
+
+
+def posture_penalty(gait: NDArray[np.float64]):
+    dev = np.abs(gait - START) / ANGLE_RANGES
+    return np.mean(_excess(dev, POSTURE_TOL), axis=ALL_AXES)
+
+
+EDGE_FRAMES = 5
+
+
+def start_pose_penalty(gait: NDArray[np.float64]):
+    error = np.abs(gait[..., :EDGE_FRAMES, :, :] - START) / ANGLE_RANGES
+    return np.mean(_excess(error, START_TOL), axis=(-3, -2, -1))
+
+
+def loop_penalty(gait: NDArray[np.float64]):
+    error = np.abs(gait[..., -EDGE_FRAMES:, :, :] - START) / ANGLE_RANGES
+    return np.mean(_excess(error, START_TOL), axis=(-3, -2, -1))
+
+
+def _movement_batch(gaits: NDArray[np.float64]):
     """
-    _validate_angles(gait, GAIT_SHAPE)
-    _validate_angles(targets, (len(KEYFRAMES), *POSE_SHAPE))
-    error = (gait[KEYFRAMES] - targets) / ANGLE_RANGES
-    return float(np.sqrt(np.mean(error**2)))
-
-
-def smoothness_penalty(gait: NDArray[np.float64]) -> float:
-    """Alternative smoothness measure (weight is 0 by default).
-
-    Mean squared second difference penalises abrupt changes in velocity.
+    Movement metrics for a population (N, T, 8, 3).
+    Returns displacement (N,), contact_ratio (N,), supported_intervals (N,),
+    finite (N,), height_pen (N,).
     """
-    _validate_angles(gait, GAIT_SHAPE)
-    second_diff = np.diff(gait, n=2, axis=0)
-    return float(np.mean((second_diff / (2 * ANGLE_RANGES)) ** 2))
+    foot_positions = calculate_foot_positions(gaits)  # (N, T, 8, 3)
+    finite = np.isfinite(foot_positions).all(axis=(1, 2, 3))
 
+    # penalise feet floating too high or sinking below the floor
+    foot_z = foot_positions[..., 2]  # (N, T, 8)
+    lowest = foot_z.min(axis=-1, keepdims=True)  # (N, T, 1) the foot the body rests on
+    rel = foot_z - lowest  # height above that foot
 
-def symmetry_penalty(
-    gait: NDArray[np.float64],
-    mirror_signs: NDArray[np.float64] = MIRROR_SIGNS,
-    mirror_offsets: NDArray[np.float64] = MIRROR_OFFSETS,
-) -> float:
-    """Left/right mirror symmetry; 0 means perfectly mirrored.
+    # Body riding up or sagging: the lowest foot should sit at the standing floor level
+    body_shift = np.abs(lowest[..., 0] - GROUND_Z)  # (N, T)
+    shift_pen = np.mean(_excess(body_shift, BODY_SHIFT_TOL), axis=1)
 
-    gait shape (300, 8, 3), radians. Stored order: L1, L2, L3, L4, R4, R3, R2, R1.
-    Each right leg is mapped into the left-leg convention
-    (right * mirror_signs + mirror_offsets) and compared with its left partner
-    (L1<->R1, L2<->R2, L3<->R3, L4<->R4) frame by frame. Errors are scaled by
-    each joint's permitted range, then squared and averaged.
-    """
-    _validate_angles(gait, GAIT_SHAPE)
+    # Feet held too high above the floor
+    air = np.max(np.maximum(0.0, rel - AIR_Z_LIMIT) ** 2, axis=(1, 2))
+    height_pen = air + shift_pen
 
-    if mirror_signs.shape != (NUM_LEG_SEGS,) or mirror_offsets.shape != (NUM_LEG_SEGS,):
-        raise ValueError(
-            f"mirror_signs and mirror_offsets must each have {NUM_LEG_SEGS} values"
-        )
-    if not np.isfinite(mirror_signs).all():
-        raise ValueError("Signs must be finite")
-    if not np.isfinite(mirror_offsets).all():
-        raise ValueError("Offset must be finite")
+    # A foot touches if it is near the lowest foot, not near a fixed number
+    ground_contact = rel <= GROUND_CONTACT_TOLERANCE
 
-    left = gait[:, LEFT_LEGS, :]
-    right = gait[:, RIGHT_MIRRORED, :]
+    planted = ground_contact[:, :-1] & ground_contact[:, 1:]
+    counts = planted.sum(axis=-1)
 
-    expected_left = right * mirror_signs + mirror_offsets
-    error = (left - expected_left) / ANGLE_RANGES[LEFT_LEGS]
-    return float(np.mean(error**2))
-
-
-# --- Combined fitness ---------------------------------------------------------
-def fitness_function(
-    gait: NDArray[np.float64],
-    targets: NDArray[np.float64] = TARGET_POSES,
-) -> float:
-    """Fitness of one individual (a single scalar, higher is better).
-
-    gait: (300, 8, 3) joint angles in radians.
-    targets: (4, 8, 3) target poses compared against frames 0, 80, 200, 299.
-    fitness = BASE_FITNESS
-            - TARGET_WEIGHT     * target_pose_penalty
-            - SMOOTHNESS_WEIGHT * smoothness_penalty
-            - SYMMETRY_WEIGHT   * symmetry_penalty
-            - JERK_WEIGHT       * jerk_penalty
-
-    The best possible score is BASE_FITNESS; the result can be negative.
-    """
-    return float(
-        BASE_FITNESS
-        - TARGET_WEIGHT * target_pose_penalty(gait, targets)
-        - SYMMETRY_WEIGHT * symmetry_penalty(gait)
-        - SMOOTHNESS_WEIGHT * smoothness_penalty(gait)
+    # Gradual reward for having grounded feet
+    contact_score = np.mean(
+        np.minimum(counts, MIN_CONTACT_FEET) / MIN_CONTACT_FEET,
+        axis=1,
     )
+
+    supported = (
+        (counts >= MIN_CONTACT_FEET)
+        & (planted[..., FRONT_LEGS].sum(axis=-1) >= MIN_END_FEET)
+        & (planted[..., BACK_LEGS].sum(axis=-1) >= MIN_END_FEET)
+    )
+
+    foot_disp = (
+        foot_positions[:, 1:, :, FORWARD_AXIS] - foot_positions[:, :-1, :, FORWARD_AXIS]
+    )
+
+    vals = np.where(planted, -FORWARD_SIGN * foot_disp, np.inf)
+    vals.sort(axis=-1)
+    last = vals.shape[-1] - 1
+    lo = np.clip((counts - 1) // 2, 0, last)[..., None]
+    hi = np.clip(counts // 2, 0, last)[..., None]
+    median = (
+        0.5
+        * (
+            np.take_along_axis(vals, lo, axis=-1)
+            + np.take_along_axis(vals, hi, axis=-1)
+        )[..., 0]
+    )
+
+    frame_disp = np.where(supported, median, 0.0)
+
+    total_intervals = gaits.shape[1] - 1
+    displacement = frame_disp.sum(axis=1)
+    supported_count = supported.sum(axis=1)
+    contact_ratio = supported_count / total_intervals if total_intervals > 0 else 0.0
+
+    return (
+        displacement,
+        contact_ratio,
+        supported_count,
+        finite,
+        height_pen,
+        contact_score,
+    )
+
+
+def forward_movement_reward(displacement: float):
+    return np.tanh(np.maximum(0.0, displacement) / FORWARD_DISTANCE_SCALE)
+
+
+def backward_movement_penalty(displacement: float):
+    return np.tanh(np.maximum(0.0, -displacement) / FORWARD_DISTANCE_SCALE)
+
+
+def fitness_function_batch(gaits: NDArray[np.float64]) -> NDArray[np.float64]:
+    """
+    Evaluate a whole population at once.
+
+    Input:  (N, 300, 8, 3), radians
+    Output: (N,) fitness values, higher is better
+    """
+    _validate_angles(gaits)
+
+    displacement, _, _, finite, height_pen, contact_score = _movement_batch(gaits)
+
+    fitness = (
+        BASE_FITNESS
+        + FORWARD_WEIGHT * forward_movement_reward(displacement)
+        - BACKWARD_WEIGHT * backward_movement_penalty(displacement)
+        + CONTACT_WEIGHT * contact_score
+        - STEP_WEIGHT * step_size_penalty(gaits)
+        - SMOOTHNESS_WEIGHT * smoothness_penalty(gaits)
+        - SYMMETRY_WEIGHT * symmetry_penalty(gaits)
+        - STRIDE_WEIGHT * stride_penalty(gaits)
+        - POSTURE_WEIGHT * posture_penalty(gaits)
+        - START_WEIGHT * start_pose_penalty(gaits)
+        - HEIGHT_WEIGHT * height_pen  # NEW
+        - LOOP_WEIGHT * loop_penalty(gaits)
+    )
+
+    return np.where(finite, fitness, INVALID_FITNESS)
