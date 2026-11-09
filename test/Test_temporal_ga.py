@@ -9,8 +9,10 @@ import fitness_function as f
 
 class TestTemporalGA(unittest.TestCase):
     def test_init_population(self) -> None:
-        population = GA.init_population(10, seed=42)
-        np.testing.assert_array_equal(population, GA.init_population(10, seed=42))
+        population = GA.init_population(10, seed=42, initial_std=0.01)
+        np.testing.assert_array_equal(
+            population, GA.init_population(10, seed=42, initial_std=0.01)
+        )
         for index in [0, -1]:
             np.testing.assert_array_equal(
                 population[:, index], np.broadcast_to(GA.SPREAD, (10, 8, 3))
@@ -20,6 +22,7 @@ class TestTemporalGA(unittest.TestCase):
         exact = GA.init_population(2, seed=42, initial_std=0)
         np.testing.assert_array_equal(exact, np.broadcast_to(f.INTERPOLATED_REFERNCE_GAIT, exact.shape))
         uniform = GA.init_population(10, seed=42, initial_std=None)
+        np.testing.assert_array_equal(GA.init_population(10, seed=42), uniform)
         self.assertGreater(np.std(np.diff(uniform[:, 1:-1], axis=1)), 0.5)
         for invalid in [-1, np.nan, np.inf]:
             with self.assertRaises(ValueError):
@@ -108,6 +111,8 @@ class TestTemporalGA(unittest.TestCase):
                 GA.tournament_selection(population, fitness, 10, tournament_size=invalid)
 
     def test_run_GA_training(self) -> None:
+        default = GA.run_GA_training(2, 0, 0, 0, 0, GA.tournament_selection, 42)
+        np.testing.assert_array_equal(default[0], GA.init_population(2, seed=42, initial_std=None))
         exact = GA.run_GA_training(2, 0, 0, 0, 0, GA.tournament_selection, initial_std=0)
         np.testing.assert_array_equal(
             exact[0], np.broadcast_to(f.INTERPOLATED_REFERNCE_GAIT, exact[0].shape)
@@ -141,7 +146,7 @@ class TestTemporalGA(unittest.TestCase):
         self.assertEqual(f.symmetry_penalty(gait), 0.0)
         gait[:, f.LEFT_LEGS] = f.SYMMETRY_TOLERANCE
         self.assertAlmostEqual(f.symmetry_penalty(gait), f.SYMMETRY_TOLERANCE)
-        gait[:, f.RIGHT_MIRRORED] = -f.SYMMETRY_TOLERANCE
+        gait[:, f.RIGHT_MIRRORED] = [-0.1, 0.1, 0.1]
         self.assertEqual(f.symmetry_penalty(gait), 0.0)
 
     def test_fitness_function_scales_raw_errors(self) -> None:
@@ -153,6 +158,7 @@ class TestTemporalGA(unittest.TestCase):
             f.step_size_penalty(gait, target),
             f.acceleration_penalty(gait),
             f.symmetry_penalty(gait),
+            f.start_end_pose_penalty(gait),
         ]
         score = f.fitness_function(gait, target)
         tolerances = {
@@ -160,6 +166,7 @@ class TestTemporalGA(unittest.TestCase):
             for name in [
                 "TARGET_ANGLE_TOLERANCE", "STEP_SIZE_TOLERANCE",
                 "ACCELERATION_TOLERANCE", "SYMMETRY_TOLERANCE",
+                "START_END_TOLERANCE",
             ]
         }
         with patch.multiple(f, **tolerances):
@@ -171,6 +178,7 @@ class TestTemporalGA(unittest.TestCase):
                     f.step_size_penalty(gait, target),
                     f.acceleration_penalty(gait),
                     f.symmetry_penalty(gait),
+                    f.start_end_pose_penalty(gait),
                 ],
             )
             self.assertAlmostEqual(

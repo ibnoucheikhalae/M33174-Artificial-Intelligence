@@ -20,12 +20,13 @@ RIGHT_MIRRORED = [7, 6, 5, 4]  # R1..R4, so index i pairs with left i
 
 # How a right-leg angle maps into the left-leg convention:
 #   expected_left = right * MIRROR_SIGNS + MIRROR_OFFSETS
-# All three joints flip sign (confirmed by the real midpoint pose: L1 vs R1 are
-# exact negatives), and the left/right joint limits are negations of each other.
-MIRROR_SIGNS = np.asarray((-1.0, -1.0, -1.0), dtype=np.float64)
+# The supplied renderer mirrors hip yaw; thigh and knee pitch use the same
+# convention on both sides, as do the joint limits in GA.
+MIRROR_SIGNS = np.asarray((-1.0, 1.0, 1.0), dtype=np.float64)
 MIRROR_OFFSETS = np.asarray((0.0, 0.0, 0.0), dtype=np.float64)
 
-# Target poses extracted from the Webots controller.
+# Target poses extracted from the Webots controller, with right-leg pitch
+# signs converted to the supplied renderer's convention.
 # Leg order: L1, L2, L3, L4, R4, R3, R2, R1
 # Joint order: hip, thigh, knee
 # All angles are in radians.
@@ -37,10 +38,10 @@ CLOSE = np.array(
         [0.10, -1.3056, 0.8156],  # L2
         [-0.10, -1.3056, 0.8156],  # L3
         [-0.24, -1.3056, 0.8156],  # L4
-        [0.24, 1.3056, -0.8156],  # R4
-        [0.10, 1.3056, -0.8156],  # R3
-        [-0.10, 1.3056, -0.8156],  # R2
-        [-0.24, 1.3056, -0.8156],  # R1
+        [0.24, -1.3056, 0.8156],  # R4
+        [0.10, -1.3056, 0.8156],  # R3
+        [-0.10, -1.3056, 0.8156],  # R2
+        [-0.24, -1.3056, 0.8156],  # R1
     ],
     dtype=float,
 )

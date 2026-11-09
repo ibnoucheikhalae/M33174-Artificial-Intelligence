@@ -24,17 +24,18 @@ MAX_JOINT_ANGLES = np.array([LEFT_MAX] * 4 + [RIGHT_MAX] * 4)
 MUTATION_RANGE_STEP_MIN = 1
 MUTATION_RANGE_STEP_MAX = 2
 
-# Start / end pose
+# Start / end pose in the supplied renderer's convention: mirrored legs have
+# opposite hip yaw, but equal thigh and knee pitch.
 SPREAD = np.array(
     [
         [-0.48, -1.3056, 0.8156],  # L1
         [-0.20, -1.3056, 0.8156],  # L2
         [0.20, -1.3056, 0.8156],  # L3
         [0.48, -1.3056, 0.8156],  # L4
-        [-0.48, 1.3056, -0.8156],  # R4
-        [-0.20, 1.3056, -0.8156],  # R3
-        [0.20, 1.3056, -0.8156],  # R2
-        [0.48, 1.3056, -0.8156],  # R1
+        [-0.48, -1.3056, 0.8156],  # R4
+        [-0.20, -1.3056, 0.8156],  # R3
+        [0.20, -1.3056, 0.8156],  # R2
+        [0.48, -1.3056, 0.8156],  # R1
     ],
     dtype=float,
 )
@@ -347,12 +348,13 @@ def run_GA_training(
 def main(printy: bool = False) -> int:
     #! Note: Temporary stand-in values for now
     generations = run_GA_training(
-        population_size=100,
-        num_generations=200,
+        population_size=1,
+        num_generations=1,
         crossover_rate=0.2,
         mutation_rate=0.01,
         mutation_std=0.01,
         selection_method=tournament_selection,
+        initial_std=0
     )
     if printy:
         for i, gen in enumerate(generations):
