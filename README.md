@@ -71,16 +71,18 @@ Each individual carries a single chromosome, so here chromosome and genotype mea
 
 ## 3. Initial population
 
-The initial population is random: every gene is drawn from within its joint's valid range. Heinen and Osório (2006a) and Manglik, Gupta and Bhanot (2016) also start from random populations.
+The default population is seeded from the reference gait, with independent Gaussian noise
+added to each angle. `initial_std=0.01` means a noise standard deviation of 0.01 radians.
+Angles are clamped to their joint limits, and the first and last poses are fixed to SPREAD.
 
-We considered generating individuals from a sinusoidal joint-angle formula:
+This gives evolution a head start: it refines a noisy reference rather than discovering the
+walking cycle from scratch. Crossover averages selected parents, and mutation adds
+Gaussian variation around neighbouring frames. These operators use the existing population;
+the reference is used for initialization and scoring.
 
-\[ \theta(t) = C + A \sin(\omega t + \varphi) \]
-
-Here \(C\) is the central angle, \(A\) the amplitude, \(\omega\) the angular frequency and \(\varphi\) the phase offset. We decided against it. The formula hard-codes a walking pattern, and each term works like a slider: a higher frequency walks faster, a larger amplitude takes larger steps. Seeding from it would mean the GA starts from a gait we designed, rather than discovering one. Vice, Sukthankar and Douglas (2022) take the seeded route instead, starting from mutations of a hand-tuned gait.
-
-<!-- TODO: cite the paper this formula came from. Vice, Sukthankar and Douglas (2022) use the same form with cosine, α·cos(p·t + φ) + v. -->
-<!-- TODO: decide whether the formula is still used to define target poses for the fitness function (section 4.5). -->
+`init_population`, `run_GA_training`, and `try_all_permutations` accept `initial_std`.
+Increase it to investigate harder starting populations, or pass `None` for independent
+uniform initialization. Use the same initial standard deviation when comparing configurations.
 
 ## 4. Fitness function
 
@@ -164,7 +166,7 @@ We compare two stochastic methods, roulette-wheel selection and tournament selec
 
 <!-- TODO: confirm the crossover operator and the definition of the rate below against the code. -->
 
-We use uniform crossover, following Heinen and Osório (2006a). The crossover rate \(p_c\) is the probability that a selected pair of parents is crossed at all. When they are, each gene of the child comes from either parent with equal probability. Otherwise the parents pass to the next generation unchanged. This is the convention of GAlib, the library Heinen and Osório built on.
+We use arithmetic crossover: with probability \(p_c\), a parent pair produces two weighted averages, using one random weight \(a\) between 0 and 1. The children are \(A+a(B-A)\) and \(B-a(B-A)\). The same weight applies across the gait, so crossover does not create abrupt switches between parents at adjacent frames. This is a standard operator for real-valued GAs; see [MATLAB's arithmetic crossover documentation](https://www.mathworks.com/help/gads/genetic-algorithm-options.html). Uncrossed pairs and an unpaired final individual are copied. Joint limits and common fixed endpoints are preserved. The rate now applies to a parent pair, rather than to each angle independently.
 
 Heinen and Osório (2006a) used \(p_c = 0.6\) but gave no justification, and none of the other papers we read justified theirs. We therefore test \(p_c \in \{0.2, 0.4, 0.6, 0.8\}\) rather than copying one value (section 8).
 
@@ -174,7 +176,9 @@ Heinen and Osório (2006a) used \(p_c = 0.6\) but gave no justification, and non
 
 ## 7. Mutation
 
-Mutation adds a small random change to a gene, drawn from a normal distribution, and clamps the result to the joint's valid range. This is Gaussian mutation, as used by Heinen and Osório (2006b) and Vice, Sukthankar and Douglas (2022). A bit flip, the classic binary operator, does not apply to real-valued angles.
+Mutation selects individual angles with probability \(p_m\). For a selected interior angle, it uses \(\theta'_t=(\theta_{t-1}+\theta_{t+1})/2+\epsilon\), where \(\epsilon\) is Gaussian noise with standard deviation `mutation_std` in radians. Both neighbours are read from the original individual, then results are clamped to the joint limits. Endpoint poses remain fixed.
+
+This is a deliberate local continuity bias: nearby frames usually need similar angles. It uses the current gait, and does not prescribe a cycle or use the target to choose a mutation. The Gaussian variation is independent for each selected angle; fitness selects among the resulting individuals. `mutation_std` controls variation around the neighbours' mean, so the total change can be larger than that value when a pose is far from its neighbours. With `mutation_std=0`, selected angles still take that mean; `mutation_rate=0` disables mutation.
 
 The mutation rate \(p_m\) is the probability that each gene is mutated. Heinen and Osório (2006a) used \(p_m = 0.05\), Wang et al. (2021) used 0.1, and Vice, Sukthankar and Douglas (2022) used 0.4 per parameter on a much smaller genome. Since the published values disagree and none is justified, we test \(p_m \in \{0.01, 0.02, 0.05, 0.10\}\).
 
