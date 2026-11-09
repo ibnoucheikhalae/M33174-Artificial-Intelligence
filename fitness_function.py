@@ -70,10 +70,11 @@ INTERPOLATED_REFERNCE_GAIT = (
 # Fitness = BASE_FITNESS - (weighted sum of penalties). A perfect gait scores
 # BASE_FITNESS; every penalty subtracts from it. Weights: tune later.
 BASE_FITNESS = 1.0
-TARGET_WEIGHT = 0.5
+TARGET_WEIGHT = 0.8
 STEP_SIZE_WEIGHT = 0.3
 SYMMETRY_WEIGHT = 0.1
 ACCELERATION_WEIGHT = 0.1
+START_END_WEIGHT = 0.6  #todo: check total_penalty > 1 is ok
 
 # Helpers return raw RMS errors in the units below. fitness_function applies
 # weight / tolerance, so an error equal to its tolerance costs that term's weight.
@@ -82,6 +83,10 @@ TARGET_ANGLE_TOLERANCE = 0.1  # radians
 STEP_SIZE_TOLERANCE = 0.01  # radians per frame
 ACCELERATION_TOLERANCE = 0.01  # radians per frame squared
 SYMMETRY_TOLERANCE = 0.1  # radians
+START_END_TOLERANCE = 0.05
+
+# Number of frames to border with start/end penalties
+EDGE_FRAMES = 5
 
 
 # --- Validation ------------------------------------------------------------
@@ -169,6 +174,14 @@ def symmetry_penalty(
     return float(np.sqrt(np.mean(error**2)))
 
 
+def start_end_pose_penalty(gait: NDArray[np.float64]) -> float:
+    """Mean joint-range-normalised error from SPREAD at both ends of the gait."""
+    _validate_angles(gait, GAIT_SHAPE)
+    edges = np.concatenate((gait[:EDGE_FRAMES], gait[-EDGE_FRAMES:]))
+    error = np.abs(edges - SPREAD) / ANGLE_RANGES
+    return float(np.mean(error))
+
+
 # --- Combined fitness ---------------------------------------------------------
 def fitness_function(
     gait: NDArray[np.float64],
@@ -192,4 +205,5 @@ def fitness_function(
         - (SYMMETRY_WEIGHT / SYMMETRY_TOLERANCE) * symmetry_penalty(gait)
         - (STEP_SIZE_WEIGHT / STEP_SIZE_TOLERANCE) * step_size_penalty(gait, targets)
         - (ACCELERATION_WEIGHT / ACCELERATION_TOLERANCE) * acceleration_penalty(gait)
+        - (START_END_WEIGHT / START_END_TOLERANCE) * start_end_pose_penalty(gait)
     )

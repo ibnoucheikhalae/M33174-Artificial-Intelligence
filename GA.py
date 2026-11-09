@@ -1,5 +1,6 @@
 import numpy as np
 import sys
+import pickle
 import random
 
 from numpy.typing import NDArray
@@ -41,7 +42,7 @@ SPREAD = np.array(
 
 #! Assuming float64, we may be able to optimise this
 def init_population(
-    n: int, seed: Optional[int] = None, initial_std: Optional[float] = 0.01
+    n: int, seed: Optional[int] = None, initial_std: Optional[float] = None
 ) -> NDArray[np.float64]:
     """
     Initialise a population of n individuals
@@ -286,7 +287,7 @@ def run_GA_training(
         [NDArray[np.float64], NDArray[np.float64], int], NDArray[np.float64]
     ],
     pop_seed: Optional[int] = None,
-    initial_std: Optional[float] = 0.01,
+    initial_std: Optional[float] = None,
 ) -> NDArray[np.float64]:
     """
     Runs the actual genetic algorithim training using the input control variables.
@@ -346,19 +347,31 @@ def run_GA_training(
 def main(printy: bool = False) -> int:
     #! Note: Temporary stand-in values for now
     generations = run_GA_training(
-        population_size=20,
-        num_generations=20,
-        crossover_rate=0.1,
-        mutation_rate=0.005,
-        mutation_std=0.002,
+        population_size=100,
+        num_generations=200,
+        crossover_rate=0.2,
+        mutation_rate=0.01,
+        mutation_std=0.01,
         selection_method=tournament_selection,
     )
-
     if printy:
         for i, gen in enumerate(generations):
             final_fitness = evaluate_fitness(gen)
             best, average = np.max(final_fitness), np.mean(final_fitness)
             print(f"Gen {i}: Best fitness: {best}; average_fitness: {average};")
+
+    last_generation = generations[-1]
+    fitneses = evaluate_fitness(last_generation)
+    best_fitness = np.max(fitneses)
+    best_indx = np.where(fitneses == best_fitness)
+    summ = {
+        "best_fitness": best_fitness,
+        "average_fitenss": np.mean(last_generation),
+        "best_gait": last_generation[best_indx],
+        "best_generation": last_generation
+    }
+    with open("recent_run.pkl", "wb") as file:
+        pickle.dump(summ, file, protocol=pickle.HIGHEST_PROTOCOL)
 
     return 0
 

@@ -79,7 +79,7 @@ def summarise_generations(generations: NDArray[np.float64]) -> RunSummary:
 
 
 def try_all_permutations(
-    seed: int, initial_std: Optional[float] = 0.01
+    seed: int, initial_std: Optional[float] = None
 ) -> Dict[ConfigKey, RunSummary]:
     """
     Returns a dictionary where the keys are the used settings and the values are the history
