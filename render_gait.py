@@ -16,10 +16,13 @@ def main() -> None:
     path = Path(sys.argv[1])
     with path.open("rb") as file:
         results = pickle.load(file)
-    config = max(results, key=lambda key: results[key]["best_fitness"].max())
-    gait = results[config]["best_gait"]
-    print("Best configuration:", config)
-    print("Best fitness:", results[config]["best_fitness"].max())
+
+    # config = max(results, key=lambda key: results[key]["best_fitness"].max())
+    # gait = results[config]["best_gait"]
+    # print("Best configuration:", config)
+    # print("Best fitness:", results[config]["best_fitness"].max())
+
+    gait = results["best_gait"][0]
 
     def draw_frame(frame: int) -> None:
         # The pose renderer clears figure 1 and prints angles on every call.
