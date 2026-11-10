@@ -4,7 +4,10 @@ import pickle
 import random
 
 from numpy.typing import NDArray
-from typing import Callable, Optional
+from typing import TYPE_CHECKING, Callable, Optional
+
+if TYPE_CHECKING:
+    from matplotlib.axes import Axes
 
 NUM_FRAMES = 300
 NUM_LEGS = 8
@@ -345,16 +348,66 @@ def run_GA_training(
     return generations
 
 
+def plot_fitness_history(
+    generations: NDArray[np.float64], configuration: str
+) -> "Axes":
+    """Plot mean fitness and the worst-to-best range for each generation.
+
+    Pass the full history returned by run_GA_training, including generation 0,
+    and a readable configuration string for the title, for example:
+    "Tournament | population=100 | crossover=0.2 | mutation=0.01 | std=0.1".
+
+    The shaded band is the population's minimum-to-maximum fitness range,
+    not a confidence interval. Fitness is recomputed using the current scoring
+    function. Saved summaries alone do not contain the worst fitness values.
+    Returns the Matplotlib axes so callers can save the figure or call plt.show().
+    """
+    import matplotlib.pyplot as plt
+    from matplotlib.ticker import MaxNLocator
+
+    if (
+        generations.ndim != 5
+        or generations.shape[2:] != (NUM_FRAMES, NUM_LEGS, NUM_LEG_SEGS)
+        or 0 in generations.shape[:2]
+    ):
+        raise ValueError("Expected a non-empty history of populations from run_GA_training")
+
+    fitness = np.array([evaluate_fitness(population) for population in generations])
+    generation_numbers = np.arange(len(generations))
+    _, axes = plt.subplots(layout="constrained")
+    axes.plot(generation_numbers, fitness.mean(axis=1), label="Mean fitness")
+    axes.fill_between(
+        generation_numbers, fitness.min(axis=1), fitness.max(axis=1),
+        alpha=0.2, label="Worst-best fitness",
+    )
+    axes.set_title(configuration, wrap=True)
+    axes.set_xlabel("Generation (0 = initial population)")
+    axes.set_xlim(0, max(1, len(generations) - 1))
+    axes.xaxis.set_major_locator(MaxNLocator(integer=True))
+    axes.set_ylabel("Fitness (higher is better)")
+    axes.grid(alpha=0.3)
+    axes.legend()
+    return axes
+
+
 def main(printy: bool = False) -> int:
-    #! Note: Temporary stand-in values for now
+    import matplotlib.pyplot as plt
+
+    population_size = 100
+    num_generations = 100
+    crossover_rate = 0.2
+    mutation_rate = 0.1
+    mutation_std = 0.01
+    selection_method = tournament_selection
+    initial_std = 0.5
     generations = run_GA_training(
-        population_size=1,
-        num_generations=1,
-        crossover_rate=0.2,
-        mutation_rate=0.01,
-        mutation_std=0.01,
-        selection_method=tournament_selection,
-        initial_std=0
+        population_size=population_size,
+        num_generations=num_generations,
+        crossover_rate=crossover_rate,
+        mutation_rate=mutation_rate,
+        mutation_std=mutation_std,
+        selection_method=selection_method,
+        initial_std=initial_std,
     )
     if printy:
         for i, gen in enumerate(generations):
@@ -374,6 +427,15 @@ def main(printy: bool = False) -> int:
     }
     with open("recent_run.pkl", "wb") as file:
         pickle.dump(summ, file, protocol=pickle.HIGHEST_PROTOCOL)
+
+    selection_name = selection_method.__name__.removesuffix("_selection").replace("_", " ").title()
+    plot_fitness_history(
+        generations,
+        f"{selection_name} | population={population_size} | generations={num_generations}\n"
+        f"crossover={crossover_rate:g} | mutation={mutation_rate:g} | std={mutation_std:g}"
+        f" | initial_std={initial_std}",
+    )
+    plt.show()
 
     return 0
 
