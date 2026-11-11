@@ -426,9 +426,90 @@ class NeuralNetwork:
         return np.average((targets - predictions) ** 2)
 
 def main() -> int:
-    breakpoint()
-    my_nn = NeuralNetwork()
-    loss_by_epochs = my_nn.train_nn()
+    # Doing flower dataset as test
+
+    def _class_by_prediction(prediction: FloatArray) -> str:
+        indx = np.argmin(prediction)
+        match indx:
+            case 0:
+                return "Iris-setosa"
+            case 1:
+                return "Iris-versicolor"
+            case 2:
+                return "Iris-virginica"
+
+    # 1. Load dataset
+    species_by_encoding = {
+        "Iris-setosa": [1, 0, 0],
+        "Iris-versicolor": [0, 1, 0],
+        "Iris-virginica": [0, 0, 1]
+    }
+    training_data = []
+    training_targets = []
+    testing_data = []
+    testing_targets = []
+
+    proportion_training = 0.8
+
+    import csv
+    import random
+    with open ("iris.csv") as file:
+        reader = csv.reader(file)
+        for i, row in enumerate(reader):
+            if i == 0: continue  # Skip header row
+            if random.random() < proportion_training:
+                training_data.append(row[1:-1])
+                training_targets.append(species_by_encoding[row[-1]])
+            else:
+                testing_data.append(row[:-1])  # Include ID in testing data for print display
+                testing_targets.append(species_by_encoding[row[-1]])
+
+    training_data    = np.asarray(training_data, dtype=np.float64)
+    training_targets = np.asarray(training_targets, dtype=np.float64)
+    testing_data     = np.asarray(testing_data, dtype=np.float64)
+    testing_targets  = np.asarray(testing_targets, dtype=np.float64)
+
+    # 2. Define NN architecture
+    my_nn = NeuralNetwork(
+        input_size=4,
+        hidden_sizes=(6,),  # ~= (2/3 * input) + output  | > 2 * input
+        output_size=3
+    )
+
+    # 3. Train the network
+    print("Training network...")
+    average_loss_per_epoch = my_nn.train_nn(
+        inputs=training_data,
+        targets=training_targets,
+        epochs=150,
+        learning_rate=0.1
+    )
+
+    print(f"Average loss per epoch: {average_loss_per_epoch}")
+
+    # 3. Test using unseen examples
+    print("\nTesting network...")
+    error_sum = 0
+    num_wrong = 0
+    for i, test in enumerate(testing_data):
+        prediction = my_nn.feed_forward(test[1:])
+        error = my_nn.loss(targets=testing_targets[i], predictions=prediction)
+        error_sum += error
+
+        predicted_class = _class_by_prediction(prediction)
+        real_class = _class_by_prediction(testing_targets[i])
+        if is_wrong := predicted_class != real_class: num_wrong += 1
+        print(
+            f"Testing ID-{test[0]}: prediction = {prediction}; predicted_class = {predicted_class}"
+            f"{f'; real_class = {real_class}' if is_wrong else ''}"
+        )
+
+    average_error = error_sum / len(testing_data)
+    print(
+        f"Average error on tests: {average_error}; "
+        f"Accuracy %: {100 - (num_wrong / len(testing_data) * 100)}%"
+    )
+
 
     return 0
 
