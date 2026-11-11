@@ -2,7 +2,7 @@ import unittest
 
 import numpy as np
 
-from fitness_function import (
+from GA.fitness_function import (
     GAIT_SHAPE,
     INTERPOLATED_REFERNCE_GAIT,
     step_size_penalty,

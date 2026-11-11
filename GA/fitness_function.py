@@ -1,6 +1,6 @@
 import numpy as np
 from numpy.typing import NDArray
-from GA import (
+from GA.GA import (
     NUM_FRAMES,
     NUM_LEG_SEGS,
     NUM_LEGS,

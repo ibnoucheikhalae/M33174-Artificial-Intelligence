@@ -8,7 +8,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 
-from plot_spider_pose import plot_spider_pose
+from GA.plot_spider_pose import plot_spider_pose
 
 
 def main() -> None:

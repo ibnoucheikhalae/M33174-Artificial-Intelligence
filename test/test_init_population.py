@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from GA import (
+from GA.GA import (
     MAX_JOINT_ANGLES,
     MIN_JOINT_ANGLES,
     NUM_FRAMES,

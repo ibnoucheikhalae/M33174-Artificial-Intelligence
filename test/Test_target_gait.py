@@ -2,9 +2,9 @@ import unittest
 
 import numpy as np
 
-import fitness_function as f
-from GA import evaluate_fitness
-from plot_spider_pose import forward_leg_kinematics2
+import GA.fitness_function as f
+from GA.GA import evaluate_fitness
+from GA.plot_spider_pose import forward_leg_kinematics2
 
 
 class TestTargetGait(unittest.TestCase):

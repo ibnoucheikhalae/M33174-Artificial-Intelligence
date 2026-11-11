@@ -26,14 +26,32 @@ The project is written in Python. The supplied MATLAB code was translated almost
 
 <!-- TODO: Python version, dependencies (requirements.txt), and the exact commands to run the experiment and produce the graphs and renders. -->
 
+To set up an environment with the correct requirements, please use the provided `./init.sh` script.
+This script will create a virtual environment and install all required packages into said environment automatically.
+Before running please ensure that you have python3 and pip installed.
 ```bash
-pip install -r requirements.txt
-python main.py
+./init.sh
+source venv/bin/activate
 ```
 
 The code is split into separate functions for initialisation, fitness, selection, crossover, mutation and the experiment loop. This keeps the nested experiment in section 8 manageable and lets each operator be tested on its own.
 
 <!-- TODO: list the modules/files and what each contains. -->
+
+### Run a GA
+- Edit the control varables in the main function of GA.py to the desired value.
+- Run `python ./GA/GA.py` to run the genetic algorithm with these control variables.
+- - This will save the gait with the best fitness from the last generation to `recent_run.pkl`
+
+### Render a gait
+Any saved gait can be rendered using the rendering script.
+Just run `python ./GA/render_gait.py path/to/saved/gait.pkl`
+
+For example, if you want to render the saved gait from the last GA.py run, just run `python ./GA/render_gait.py recent_run.pkl`
+
+### Run the experiment script
+For testing, we used a script called `./GA/try_all_ga_configs.py` to experiment with different permutations of the control variables ("all GA configs").
+If you would like to run this yourself, just run `python ./GA/try_all_ga_configs.py`
 
 ## 2. Encoding
 

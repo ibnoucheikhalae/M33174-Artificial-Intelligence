@@ -3,8 +3,8 @@ from unittest.mock import patch
 
 import numpy as np
 
-import GA
-import fitness_function as f
+import GA.GA as GA
+import GA.fitness_function as f
 
 
 class TestTemporalGA(unittest.TestCase):

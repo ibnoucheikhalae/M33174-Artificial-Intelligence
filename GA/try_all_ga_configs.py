@@ -31,7 +31,7 @@ import pickle
 from datetime import datetime
 from typing import Dict, Optional, TypedDict
 from numpy.typing import NDArray
-from GA import (
+from GA.GA import (
     run_GA_training,
     tournament_selection,
     roulette_selection,

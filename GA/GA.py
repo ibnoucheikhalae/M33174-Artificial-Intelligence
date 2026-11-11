@@ -86,7 +86,7 @@ def init_population(
         if not np.isfinite(initial_std) or initial_std < 0:
             raise ValueError("initial_std must be finite and non-negative")
         # Defer the import: fitness_function imports the joint constants from GA.
-        from fitness_function import INTERPOLATED_REFERNCE_GAIT
+        from GA.fitness_function import INTERPOLATED_REFERNCE_GAIT
 
         population = INTERPOLATED_REFERNCE_GAIT + rng.normal(0.0, initial_std, size=shape)
         population = np.clip(population, MIN_JOINT_ANGLES, MAX_JOINT_ANGLES)
@@ -100,7 +100,7 @@ def evaluate_fitness(pop: NDArray[np.float64]) -> NDArray[np.float64]:
     Takes in a population and returns an array consisting of one fitness value per individual.
     """
     # Defer this import because fitness_function imports the joint constants from GA.
-    from fitness_function import fitness_function
+    from GA.fitness_function import fitness_function
 
     fitness = np.array([fitness_function(gait) for gait in pop])
 
