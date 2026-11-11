@@ -1,12 +1,11 @@
 """
-Practical worksheet 5: a neural network trained using backpropagation.
+A Neural Network class from scratch trained using back propagation
 
 Scope
 -----
 Use sigmoid activations in every trainable layer and half-sum squared-error
 loss for one training example. Training will use one parameter update per
-example, as in the worksheet. Biases are included here as an addition to the
-worksheet, whose implementation contains weights but no biases.
+example.
 
 Array and indexing conventions
 ------------------------------
@@ -86,21 +85,6 @@ For each connection index i:
 A learning rate is positive; it is not mathematically restricted to below 1.
 Training repeats: forward pass -> loss -> backward pass -> parameter update.
 An epoch is one complete pass through the training dataset.
-
-Relationship to the worksheet's D and Der
------------------------------------------
-The worksheet's local D is a per-neuron delta. Its stored Der[i] has the
-shape of a weight matrix and is formed from source activations and D.
-Despite its comment, Der[i] is not just an activation derivative.
-
-The worksheet starts with target - prediction, so its D and Der have the
-opposite signs to the deltas and weight_gradients defined here. For the loss
-above, its Der stores negative weight gradients, which explains why its GD
-method ADDS the update. This file instead defines ordinary loss gradients
-and SUBTRACTS them. Both sign conventions are valid when used consistently.
-
-The worksheet reports mean squared error separately. For m output neurons,
-that reported loss equals (2/m) * E; it is not generally the loss E above.
 """
 
 import numpy as np
@@ -149,7 +133,7 @@ class NeuralNetwork:
             output_size: Positive number of output neurons
             seed: Optional nonnegative random seed for reproducable weights
 
-        Weights are sampled uniformly from [0, 1), following the worksheet.
+        Weights are sampled uniformly from [0, 1).
         Biases, activations, deltas, and parameter gradients are initialised to 0.
         All allocated arrays use float64 and belong to this network instance.
 
