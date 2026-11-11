@@ -144,7 +144,7 @@ class NeuralNetwork:
         Intialise parameters and caches. And validate the architecture.
 
         Args:
-            input_size: Positive number of input data points
+            input_size: Positive number of input features per example
             hidden_sizes: Immutable tuple of hidden layer widths
             output_size: Positive number of output neurons
             seed: Optional nonnegative random seed for reproducable weights
@@ -190,7 +190,7 @@ class NeuralNetwork:
 
         # Initialise a cache to store activation values. Indexed by layer, including input layer.
         # Reminder: an activation is the neurons output, after applying the activation function
-        # For one neuron: z = sum(wx + b); a = sigmoid(z);
+        # For one neuron: z = sum(wx) + b; a = sigmoid(z);
         # z = the weighted sum plus bias (pre-activation input);
         # a = the neurons output
         self.activations: List[FloatArray] = [
@@ -223,37 +223,92 @@ class NeuralNetwork:
 
     def feed_forward(self, inputs: FloatArray) -> FloatArray:
         """
-        Compute a prediction for one input set and cache every layer activation. - inference
+        Compute a prediction for one example and cache every layer activation. - inference
 
         Args:
-            inputs: Input data of shape input_size
+            inputs: Input data of shape (input_size,)
 
         Returns:
-            Prediction vector of shape output_size.
+            Prediction vector of shape (output_size,)
             Only the final prediction is returned; intermediate activations put in self.activations
 
-        Cache the input at activations[0]. This method changes the activation cache but does not
-        update any weights or biases. A new call replaces the activations needed by backward for
-        the given input.
+        Cache the input at activations[0] and each subsequent layer's output at activations[i+1].
+        A new call replaces the activations needed by back_propagation for the given input.
         """
-        return
+        activation = inputs.copy()
+        self.activations[0] = activation
+
+        for i, weights in enumerate(self.weights):
+            weighted_inputs = activation @ weights + self.biases[i]  # z
+            activation = self.sigmoid(weighted_inputs)  # a
+
+            self.activations[i + 1] = activation
+
+        # Final activation is output layer
+        return activation
 
     def back_propagation(self, targets: FloatArray) -> None:
         """
         Compute and store parameter gradients for the latest forward pass.
 
         Args:
-            targets: Target vector of shape output_size for the input supplied to the last FF call
+            targets: Target vector of shape (output_size,) for the input supplied to the last
+            `feed_forward` call
 
         Requires a preceeding forward pass with the current weights and biases.
-        Populates deltas, weight_gradients, and bias_gradients using the worksheet's loss definition
-        Targets are accepted directly.
+        Uses mean squared error averaged across the output neurons.
 
-        Compute all gradients without updating parameters - this is done by the step method after
-        back propagation.
-        A later back_propogation call should replace the gradient values rather than accumulate them
+        Replace deltas, weight_gradients, and bias_gradients without updating any parameters.
+        The `step` method applies the updates afterwards (see `train_nn`).
         """
-        return
+        # Prediction is the last activation -- output layer
+        predictions = self.activations[-1]
+
+        # Derivative of MSE with respect to each output neuron:
+        #   dE/da = 2/m * (a - t)
+        # This means ~"How sensitive the loss is to each output activation: dE/da"
+        activation_gradient = (2.0 / targets.size) * (predictions - targets)
+
+        # Go through the weights in reverse
+        for i in reversed(range(len(self.weights))):
+            # Connection i feeds desination layer i+1
+            activation = self.activations[i + 1]
+
+            # dE/dz =        dE/da        *         da/dz
+            # delta = activation_graident * activation_derivative
+            activation_derivative = self.sigmoid_derivative_from_activation(activation)
+            delta = activation_gradient * activation_derivative
+            # For intuition of the above, if sigmoid is nearly flat at this neuron, chaning `z`
+            # barely changes it activation. That small sigmoid derivative reduces how strongly
+            # a change in `z` affects the loss.
+            # Delta does not tell us how much to update a weight. For a particular connection:
+            #     weight_gradient   = source_activation * destination_delta
+            #     weight_adjustment = -learning_rate * weight_gradient  (performed in `step`)
+
+            self.deltas[i] = delta
+
+            # np.outer multiplies every source activation by every destination delta
+            # Example:
+            #     source_activations = [2, 3];  destination_deltas = [0.1, -0.2]
+            #     outer_product = [
+            #         [2 * 0.1, 2 * -0.2],
+            #         [3 * 0.1, 3 * -0.2]
+            #     ]
+            # This gives us our expected shape, where each entry is the gradient for one
+            # source-to-destination weight
+            self.weight_gradients[i] = np.outer(self.activations[i], delta)
+
+            # Bias gradients have the same numerical values as deltas because a neuron adds its
+            # bias directly: z = aw + b
+            # Therefore, increasing `b` by a small amount increases `z` by exactly that amount
+            # So although self.deltas and self.bias_gradients have different semantic meaning,
+            # their values coincide. And therefore we can avoid doing repeated arithmetic here.
+            self.bias_gradients[i] = delta.copy()
+
+            if i > 0:  # Don't update on input layer
+                # Propagate the loss gradient to the preceding trainable layer
+                # .T transposes -- swapping rows and columns
+                activation_gradient = delta @ self.weights[i].T
 
     def step(self, learning_rate: float) -> None:
         """
@@ -271,16 +326,16 @@ class NeuralNetwork:
         # Reminder: a weight gradient tells you how sensitive the loss is to that weight.
         # g = dE/dw
         # This is used in gradient descent: w_new = w_old + delta_w; delta_w = -lr * g
-        for i, old_bias in enumerate(self.biases):
+        for i, old_biases in enumerate(self.biases):
             delta_bias = -learning_rate * self.bias_gradients[i]
-            new_bias = old_bias + delta_bias
-            self.biases[i] = new_bias
+            new_biases = old_biases + delta_bias
+            self.biases[i] = new_biases
 
         for i, old_weights in enumerate(self.weights):
-            for j, old_weight in enumerate(old_weights):
-                delta_weight = -learning_rate * self.weight_gradients[i][j]
-                new_weight = old_weight + delta_weight
-                self.weights[i][j] = new_weight
+            delta_weights = -learning_rate * self.weight_gradients[i]
+            new_weights = old_weights + delta_weights
+            self.weights[i] = new_weights
+
 
     def train_nn(
             self,
@@ -324,7 +379,7 @@ class NeuralNetwork:
 
             epoch_mean_losses.append(epoch_loss_sum / inputs.shape[0])
 
-        return
+        return epoch_mean_losses
 
     @staticmethod
     def sigmoid(z: FloatArray) -> FloatArray:
