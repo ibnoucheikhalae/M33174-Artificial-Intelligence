@@ -31,13 +31,9 @@ Before running please ensure that you have python3 and pip installed.
 ```bash
 ./init.sh
 source venv/bin/activate
-python -m GA.GA                                              # one training run -> recent_run.pkl
-python -m GA.render_gait recent_run.pkl                      # animate the best gait
-python -m GA.render_gait recent_run.pkl --save out.gif --stride 3
-    # --stride 3 = every 3rd frame (faster gif)
-python -m GA.try_all_ga_configs                              # parameter grid
-python -m pytest test/                                       # unit tests
 ```
+
+The code is split into separate functions for initialisation, fitness, selection, crossover, mutation and the experiment loop. This keeps the nested experiment in section 8 manageable and lets each operator be tested on its own.
 
 | File | Contents |
 | --- | --- |
@@ -48,6 +44,119 @@ python -m pytest test/                                       # unit tests
 | `GA/plot_spider_pose.py` | 3D pose renderer (uses `kinematics.py`) |
 | `GA/render_gait.py` | Animates a saved gait, interactively or to a file |
 | `test/` | Unit tests for the operators and every fitness term |
+
+### Run a GA
+- Edit the control varables in the main function of GA.py to the desired value.
+- Run `python -m GA.GA` to run the genetic algorithm with these control variables.
+  - This will save the gait with the best fitness from the last generation to `recent_run.pkl`
+
+### Render a gait
+Any saved gait can be rendered using the rendering script.
+Just run `python -m GA.render_gait path/to/saved/gait.pkl`
+
+For example, if you want to render the saved gait from the last GA.py run, just run `python -m GA.render_gait recent_run.pkl`
+
+### Run the experiment script
+For testing, we used a script called `./GA/try_all_ga_configs.py` to experiment with different permutations of the control variables ("all GA configs").
+If you would like to run this yourself, just run `python -m GA.try_all_ga_configs`
+
+### Train the next-pose neural network
+
+The GA script's `main()` saves every distinct individual with fitness strictly
+above `FITNESS_SAVE_THRESHOLD` (set in `GA/GA.py`) to `NN/data/`. This includes
+all generations, from the initial population through the final generation.
+Repeated elite gaits are saved once. Archives are written after all generations
+finish. The script immediately prints the configured threshold and absolute
+destination, then reports each generation's fitness and qualifying count as it
+runs. If no individual exceeds the threshold, it prints that no NN data was
+saved; this is an ordinary outcome, not an error. The configuration experiment
+also explicitly exports each run's qualifying gaits. `run_GA()` itself only
+runs evolution and returns the history; library callers choose whether to export.
+Its optional `on_generation` callback lets a caller collect fitness and display
+live progress without putting logging or file handling inside the algorithm.
+
+Each `run_<id>.npz` archive contains `gaits` with shape `(N, 300, 8, 3)` in
+radians, `fitness` and `generation_indices` with shape `(N,)`, and the threshold.
+`GAIT_DATA_DIRECTORY` and `FITNESS_SAVE_THRESHOLD` are defined in `GA/GA.py`.
+No copying of `recent_run.pkl` is needed; that file remains available for rendering.
+
+Run the GA independently several times, then train the network from the
+repository root with the environment activated:
+
+```bash
+python -m GA.GA
+# Repeat GA runs to collect at least two independent runs with distinct gaits.
+python -m NN.nn_template --output-dir nn_results --epochs 100
+```
+
+Training prints the training/test gait counts and number of transitions per
+epoch before starting, then reports `Epoch 1/100: training MSE=...` after each
+completed epoch. MSE is averaged over the scaled joint angles and training
+examples as they are processed. An epoch visits every training transition, so
+larger datasets take longer before the first epoch report appears. Progress
+printing belongs to `main()`; library callers can supply an `on_epoch`
+callback to `train_network()` or `NeuralNetwork.train_nn()`.
+
+The NN reads `NN/data/` by default; an optional positional directory overrides
+it. It removes exact duplicates across archives and shuffles/splits complete
+runs 80:20. All remaining individuals from a run stay in one split, so the
+proportions of individual gaits can differ from 80:20. Use substantially more
+than two independent runs for meaningful evaluation. Runs sharing an initial
+population or random seed should not be treated as independent experiments.
+
+The default network is **25 → 40 → 24**. Inputs are 24 current joint angles,
+followed by the current frame divided by 299; targets are the next 24 angles.
+Each 300-frame gait supplies 299 transitions. Sigmoid outputs are between zero
+and one, so the network uses the reversible scale
+`(angle - joint_minimum) / (joint_maximum - joint_minimum)`. Stored and generated
+angles stay in radians. Out-of-range training angles are rejected when loaded,
+rather than silently clipped or repeatedly checked by each processing function.
+If the physical limits change, update the GA limits and retrain.
+
+The script reports next-pose error and generates complete held-out sequences by
+feeding each prediction back in, starting from the reference's first pose.
+It compares against a baseline that keeps the current pose: for single-step
+prediction it copies each actual input pose; for complete-sequence generation it
+holds the starting pose for all 300 frames. GA fitness, angle errors, and motion
+metrics assess quality; joint-limit compliance alone does not demonstrate walking.
+Reserve validation runs from the training portion before tuning; do not tune on
+the test results. A different seed pose does not guarantee novel, effective motion.
+
+Results are saved in `nn_results/`:
+
+- `model.pkl`: trained parameters and preprocessing metadata.
+- `training_loss.png`: mean training squared error by epoch.
+- `metrics.json`: next-pose errors, baselines, per-gait metrics, and source archive names.
+- `generated_gaits.npy`: generated radians, shape `(test_gaits, 300, 8, 3)`.
+
+To animate the best generated gait, run:
+
+```bash
+python -m GA.render_gait nn_results/generated_gaits.npy
+```
+
+The renderer scores every gait using the current GA fitness function and opens
+the highest-scoring gait in a Matplotlib window at 30 frames per second. It
+prints the selected gait's zero-based index and fitness. That index also selects
+its entry in `metrics.json` under `rollouts` and `testing_sources`. If you change
+the fitness function after training, the newly computed scores may differ from
+the recorded metrics. Close the window to stop playback. This command also
+accepts `recent_run.pkl` for the existing GA summary workflow.
+
+Use `--help` for learning-rate, hidden-layer, and random-seed options. To generate
+from another legal starting pose in Python:
+
+```python
+from pathlib import Path
+from GA.GA import SPREAD
+from NN.nn_template import generate_gait, load_model
+
+network = load_model(Path("nn_results/model.pkl"))
+gait = generate_gait(network, SPREAD)  # (300, 8, 3), radians
+```
+
+Only load trusted pickle model files. The training archives use NumPy's array
+format with pickle disabled. Old manual gait-summary files are not NN inputs.
 
 ## 2. Encoding
 
