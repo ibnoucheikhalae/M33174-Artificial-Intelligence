@@ -82,16 +82,15 @@ def summarise_generations(generations: NDArray[np.float64]) -> RunSummary:
 
 
 def try_all_permutations(
-    seed: int, seeded_fraction: float = 0.5
+    seed: int, initial_std: float = 0.005
 ) -> Dict[ConfigKey, RunSummary]:
     """
     Returns a dictionary where the keys are the used settings and the values are the history
     of generations -- shape =
     (num_permutations, num_generations+1, population_size, NUM_FRAMES, NUM_LEGS, NUM_LEG_SEGS)
 
-    seeded_fraction controls how much of each initial population comes from
-    sinusoidal seed gaits; the rest is uniform random. Pass 0.0 to compare
-    against fully random initialisation.
+    initial_std controls the Gaussian noise in radians around the common
+    hip-and-knee reference gait for every initial individual.
     """
     all_permuations = {}
     for selection_method in SELECTION_METHODS:
@@ -111,7 +110,7 @@ def try_all_permutations(
                         mutation_std=mutation_std,
                         selection_method=selection_method,
                         pop_seed=seed,
-                        seeded_fraction=seeded_fraction,
+                        initial_std=initial_std,
                     )
                     # The experiment driver owns data export; run_GA only evolves.
                     fitness = np.array([evaluate_fitness(population) for population in generations])

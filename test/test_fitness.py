@@ -107,7 +107,7 @@ class TestCouplePenalty(unittest.TestCase):
     def test_standing_and_seed_couples_match(self) -> None:
         self.assertEqual(f.couple_penalty(static_gait(GA.SPREAD)), 0.0)
         self.assertEqual(f.couple_penalty(static_gait(GA.CLOSE)), 0.0)
-        seed = GA.sinusoidal_seed_gait(np.random.default_rng(5))
+        seed = GA.sinusoidal_seed_gait()
         self.assertLess(f.couple_penalty(seed), 0.02)
 
     def test_broken_couple_is_penalised(self) -> None:
@@ -142,7 +142,7 @@ class TestStepReward(unittest.TestCase):
         self.assertAlmostEqual(f.step_reward(GA.ideal_hip_movement()), 0.0, delta=0.05)
 
     def test_seed_steps_harder_than_a_hip_slide(self) -> None:
-        seed = GA.sinusoidal_seed_gait(np.random.default_rng(5))
+        seed = GA.sinusoidal_seed_gait()
         self.assertGreater(f.step_reward(seed), 0.4)
         self.assertGreater(f.step_reward(seed), f.step_reward(GA.ideal_hip_movement()) + 0.3)
 
@@ -155,14 +155,14 @@ class TestStepReward(unittest.TestCase):
 
 class TestCombinedFitness(unittest.TestCase):
     def test_breakdown_sums_to_fitness(self) -> None:
-        gait = GA.sinusoidal_seed_gait(np.random.default_rng(5))
+        gait = GA.sinusoidal_seed_gait()
         breakdown = f.fitness_breakdown(gait)
         self.assertAlmostEqual(
             f.fitness_function(gait), f.BASE_FITNESS + sum(breakdown.values())
         )
 
     def test_invalid_candidate_scores_worse_not_errors(self) -> None:
-        valid = GA.sinusoidal_seed_gait(np.random.default_rng(5))
+        valid = GA.sinusoidal_seed_gait()
         invalid = valid.copy()
         invalid[:, 0, 0] += 3.0
         self.assertLess(f.fitness_function(invalid), f.fitness_function(valid))

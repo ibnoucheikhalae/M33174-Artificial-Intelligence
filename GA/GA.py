@@ -22,20 +22,18 @@ if TYPE_CHECKING:
 from GA.fitness_function import MAX_FITNESS, fitness_function
 from GA.gait_constants import (
     CLOSE,
-    COUPLES,
     KEYFRAMES,
-    MAX_JOINT_ANGLES,
-    MIN_JOINT_ANGLES,
     NUM_FRAMES,
     SPREAD,
     _STEP_PHASE_OFFSETS,
 )
-from GA.kinematics import NUM_LEG_SEGS, NUM_LEGS
+from GA.kinematics import NUM_LEG_SEGS, NUM_LEGS, SOCKET_HEADINGS
 
 # Fitness is at most MAX_FITNESS, 0.9 saves only those who get 90% of MAX_FITNESS;
 # save distinct individuals strictly above this threshold.
 FITNESS_SAVE_THRESHOLD = MAX_FITNESS * 0.762
 GAIT_DATA_DIRECTORY = Path(__file__).resolve().parents[1] / "NN" / "data"
+NUM_STEPS = 1  # Complete spread-close-spread cycles and knee lifts in a seed gait.
 
 
 def ideal_hip_movement() -> NDArray[np.float64]:
@@ -46,70 +44,40 @@ def ideal_hip_movement() -> NDArray[np.float64]:
     hip path; mutation/crossover is not constrained to it. Thigh and knee stay at
     the standing bend, so only the hips actually move. Movement starts and ends at rest.
     """
-    phase = np.interp(np.arange(NUM_FRAMES), KEYFRAMES, [0.0, 1.0, 0.0])
+    cycle = NUM_STEPS * np.interp(np.arange(NUM_FRAMES), KEYFRAMES, [0.0, 0.5, 1.0])
+    phase = np.interp(cycle % 1.0, [0.0, 0.5, 1.0], [0.0, 1.0, 0.0])
     progress = 3 * phase**2 - 2 * phase**3
     return SPREAD + progress[:, None, None] * (CLOSE - SPREAD)
 
 
-def sinusoidal_seed_gait(rng: np.random.Generator) -> NDArray[np.float64]:
+def sinusoidal_seed_gait() -> NDArray[np.float64]:
     """A starting point for leg movement between the keyframe poses.
 
     Opposite legs are antiphase (Team A lifts while Team B stays down -> four up,
-    four down) Sine walk doesn't automatically land on a key frame at 0/299. 20 
-    frames at the start and end are slowed down to match the keyframes gradually. 
-    Amplitudes, cycle count and pair timing are randomised. STARTING POINT, not TARGET.
+    four down). NUM_STEPS controls both hip sweeps and knee lifts.
+    STARTING POINT, not TARGET.
     """
     gait = ideal_hip_movement().copy()
+    cycle = NUM_STEPS * np.interp(np.arange(NUM_FRAMES), KEYFRAMES, [0.0, 0.5, 1.0])
+    phase = 2 * np.pi * cycle[:, None] + _STEP_PHASE_OFFSETS[None, :]
 
-    #! Logical error! For realistic movement we need to align the number of vertical steps with the
-    #! number of horizontal steps: hips <=> knees must be 1:1!
-    #! We should instead have a control constant called NUM_STEPS that seeds both of these
-    # 2 or 3 steps over 300 frames
-    cycles = int(rng.integers(2, 4))
+    # 0 when the foot should be down; 1 at the top of a step.
+    lift = np.maximum(np.sin(phase), 0.0) ** 2
 
-    # gen0 gets one timing nudge to ensure both legs in a pair bare a resemblance at the
-    # start, again not a constraint on mutation/crossover.
+    # Sweep forward while lifted and backward while planted; mirror right-leg yaw.
+    hip = (SPREAD[:, 0] + CLOSE[:, 0]) / 2
+    hip = hip + 0.25 * np.cos(phase) * np.sign(SOCKET_HEADINGS)
+    gait[:, :, 0] = hip
 
-    couple_timing = rng.normal(0.0, 0.15, len(COUPLES))
-    hip_amp = rng.uniform(0.12, 0.22, len(COUPLES))
-    thigh_amp = rng.uniform(0.35, 0.55, len(COUPLES))
-    knee_amp = rng.uniform(0.50, 0.75, len(COUPLES))
-    phase_offsets = _STEP_PHASE_OFFSETS.copy()
-    amplitudes = np.empty((NUM_LEGS, NUM_LEG_SEGS))
-    for couple, timing, hip, thigh, knee in zip(
-        COUPLES, couple_timing, hip_amp, thigh_amp, knee_amp
-    ):
-        phase_offsets[couple] += timing
-        amplitudes[couple] = (hip, thigh, knee)
+    # Adding to thigh and knee lifts the foot in 3D view.
+    gait[:, :, 1] += lift * 0.45
+    gait[:, :, 2] += lift * 0.625
 
-    phase = (
-        2 * np.pi * cycles * np.arange(NUM_FRAMES)[:, None] / NUM_FRAMES
-        + phase_offsets[None, :]
-    )
-
-    # Turn the extra walk off at the two ends so frames 0 and 299 stay standing.
-    frames = np.arange(NUM_FRAMES)
-    fade_start = np.clip(frames / 20.0, 0.0, 1.0)  # 0 → 1 over the first 20 frames
-    fade_end = np.clip((NUM_FRAMES - 1 - frames) / 20.0, 0.0, 1.0)  # 1 → 0 over the last 20
-    fade = np.minimum(fade_start, fade_end)
-    fade = (fade * fade * (3.0 - 2.0 * fade))[:, None]  # ease, so it doesn't click on/off
-
-    # 0 when the foot should be down (or at frame 0/299). 1 at the top of a step.
-    lift = (np.maximum(np.sin(phase), 0.0) ** 2) * fade
-
-    # Hip spread through a full sine: forward during the lift, back during stance.
-    gait[:, :, 0] += fade * np.sin(phase) * amplitudes[None, :, 0]
-
-    # Adding to thigh and knee lifts the foot in 3D view
-    gait[:, :, 1] += lift * amplitudes[None, :, 1]
-    gait[:, :, 2] += lift * amplitudes[None, :, 2]
-
-    gait += rng.normal(0.0, 0.005, gait.shape)
     return gait
 
 
 def init_population(
-    n: int, seed: Optional[int] = None, seeded_fraction: float = 0.5
+    n: int, seed: Optional[int] = None, initial_std: float = 0.005
 ) -> NDArray[np.float64]:
     """
     Initialise a population of n individuals
@@ -137,20 +105,17 @@ def init_population(
         IndividualArray: shape = (300, 8, 3)
         PopulationArray: shape = (n, 300, 8, 3)
 
-    seeded_fraction of the population starts from sinusoidal seed
-    gaits (starting points). The rest is all random within the joint 
-    limits for diversity. Nothing is pinned or clamped afterwards;
+    Every individual starts from the same hip-and-knee reference gait plus
+    independent Gaussian noise with initial_std radians of standard deviation.
+    Nothing is pinned or clamped afterwards;
     all 300 frames of every individual are open to mutation/crossover.
     """
-    if not 0 <= seeded_fraction <= 1:
-        raise ValueError("seeded_fraction must be between 0 and 1")
+    if not np.isfinite(initial_std) or initial_std < 0:
+        raise ValueError("initial_std must be finite and non-negative")
 
     rng = np.random.default_rng(seed)
     shape = (n, NUM_FRAMES, NUM_LEGS, NUM_LEG_SEGS)
-    population = rng.uniform(MIN_JOINT_ANGLES, MAX_JOINT_ANGLES, size=shape)
-    for i in range(round(n * seeded_fraction)):
-        population[i] = sinusoidal_seed_gait(rng)
-    return population
+    return sinusoidal_seed_gait() + rng.normal(0.0, initial_std, size=shape)
 
 
 def evaluate_fitness(pop: NDArray[np.float64]) -> NDArray[np.float64]:
@@ -375,7 +340,7 @@ def run_GA(
         [NDArray[np.float64], NDArray[np.float64], int], NDArray[np.float64]
     ],
     pop_seed: Optional[int] = None,
-    seeded_fraction: float = 0.5,
+    initial_std: float = 0.005,
     on_generation: Callable[[int, NDArray[np.float64]], None] | None = None,
 ) -> NDArray[np.float64]:
     """
@@ -391,8 +356,8 @@ def run_GA(
         2.e) pop = new_pop
     3) Return all generations for exterior data analysis
 
-    ``seeded_fraction`` sets how much of the initial population comes from
-    sinusoidal seed gaits (the rest is uniform random).
+    ``initial_std`` sets the initial Gaussian noise in radians around the
+    common hip-and-knee reference gait.
 
     ``on_generation`` is an optional observer called with the generation index and
     its fitness vector, including generation zero and the final generation.
@@ -406,7 +371,7 @@ def run_GA(
     """
 
     # 1) Initialise Population
-    pop = init_population(population_size, pop_seed, seeded_fraction)
+    pop = init_population(population_size, pop_seed, initial_std)
 
     # Extra step: Store all generations so we can do data analysis on them later
     # num_generations+1 as initial population is considered generation 0
@@ -496,7 +461,7 @@ def main(printy: bool = False) -> int:
     mutation_rate = 0.005
     mutation_std = 0.02
     selection_method = tournament_selection
-    seeded_fraction = 0.5
+    initial_std = 0.5
     data_directory = Path(GAIT_DATA_DIRECTORY).resolve()
     print(
         f"NN data export: fitness > {FITNESS_SAVE_THRESHOLD}; directory={data_directory}. "
@@ -523,7 +488,7 @@ def main(printy: bool = False) -> int:
         mutation_rate=mutation_rate,
         mutation_std=mutation_std,
         selection_method=selection_method,
-        seeded_fraction=seeded_fraction,
+        initial_std=initial_std,
         on_generation=record_generation,
     )
     archive_path = save_training_gaits(
@@ -552,7 +517,7 @@ def main(printy: bool = False) -> int:
         generations,
         f"{selection_name} | population={population_size} | generations={num_generations}\n"
         f"crossover={crossover_rate:g} | mutation={mutation_rate:g} | std={mutation_std:g}"
-        f" | seeded_fraction={seeded_fraction}",
+        f" | initial_std={initial_std}",
     )
     plt.show()
 

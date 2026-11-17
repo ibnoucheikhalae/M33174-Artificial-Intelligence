@@ -21,28 +21,63 @@ class TestInitPopulation(unittest.TestCase):
         self.assertTrue(np.isfinite(population).all())
         np.testing.assert_array_equal(population, GA.init_population(10, seed=42))
 
-    def test_seeded_fraction_splits_population(self) -> None:
-        population = GA.init_population(10, seed=42, seeded_fraction=0.5)
-        # Seeded individuals sit near the keyframe poses; uniform ones do not.
-        seeded_error = np.abs(population[:5, 0] - GA.SPREAD).mean()
-        uniform_error = np.abs(population[5:, 0] - GA.SPREAD).mean()
-        self.assertLess(seeded_error, 0.05)
-        self.assertGreater(uniform_error, 0.3)
-        for invalid in [-0.1, 1.1]:
-            with self.assertRaises(ValueError):
-                GA.init_population(2, seeded_fraction=invalid)
+    def test_initial_std_seeds_every_individual_with_gaussian_noise(self) -> None:
+        reference = GA.sinusoidal_seed_gait()
+        for std in (0.0, 0.01, 0.1):
+            with self.subTest(std=std):
+                population = GA.init_population(10, seed=42, initial_std=std)
+                noise = population - reference
+                self.assertAlmostEqual(float(noise.mean()), 0.0, delta=max(std * 0.02, 1e-15))
+                self.assertAlmostEqual(float(noise.std()), std, delta=max(std * 0.02, 1e-15))
+                if std == 0:
+                    np.testing.assert_array_equal(
+                        population, np.broadcast_to(reference, population.shape)
+                    )
+                else:
+                    # Every individual starts near the same reference, including end frames.
+                    self.assertTrue((np.std(noise, axis=(1, 2, 3)) > std * 0.95).all())
+                    self.assertTrue((np.std(population[:, [0, -1]], axis=0) > 0).all())
+        for invalid in (-0.1, np.inf, np.nan):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                GA.init_population(2, initial_std=invalid)
+        self.assertEqual(GA.init_population(0).shape, (0, 300, 8, 3))
 
-    def test_no_frames_are_pinned(self) -> None:
-        # Every frame, including the first and last, varies across seeds:
-        # nothing is overwritten with a fixed pose after generation.
-        population = GA.init_population(6, seed=0, seeded_fraction=1.0)
-        for index in [0, -1]:
-            self.assertGreater(np.std(population[:, index]), 0)
+    def test_seed_gaits_use_the_same_step_count_for_hips_and_knees(self) -> None:
+        for steps in (1, 2, 3):
+            with self.subTest(steps=steps), patch.object(GA, "NUM_STEPS", steps):
+                gait = GA.sinusoidal_seed_gait()
+                # Count complete spread-close-spread excursions and lifts of L1.
+                hip_closed = GA.ideal_hip_movement()[:, 0, 0] > -0.12
+                knee_raised = gait[:, 0, 2] > GA.SPREAD[0, 2] + 0.1
+                for active in (hip_closed, knee_raised):
+                    self.assertEqual(
+                        np.count_nonzero(np.diff(active.astype(int)) == 1), steps
+                    )
+                self.assertTrue((gait.std(axis=0) > 0).all())
+                np.testing.assert_allclose(gait[0], gait[-1], atol=1e-12)
+                self.assertFalse(np.allclose(gait[-1], GA.SPREAD))
+                # The two tetrapod groups take turns lifting.
+                lifts = gait[:, :, 2] - GA.SPREAD[:, 2]
+                self.assertFalse(((lifts[:, 0] > 0.1) & (lifts[:, 1] > 0.1)).any())
 
-    def test_seed_gaits_move_every_joint(self) -> None:
-        rng = np.random.default_rng(3)
-        gait = GA.sinusoidal_seed_gait(rng)
-        self.assertTrue((gait.std(axis=0) > 0).all())
+    def test_seed_does_not_blend_back_to_standing_at_end(self) -> None:
+        gait = GA.sinusoidal_seed_gait()
+        # Near a natural hip turning point, frame-to-frame motion stays small.
+        self.assertLess(float(np.abs(np.diff(gait[-20:, :, 0], axis=0)).max()), 0.003)
+        self.assertFalse(np.allclose(gait[-1], GA.SPREAD))
+
+    def test_seed_hips_sweep_forward_during_lift(self) -> None:
+        gait = GA.sinusoidal_seed_gait()
+        up = f.foot_heights(gait) > f.STANCE_Z + f.AIRBORNE_CLEARANCE
+        forward = -np.sign(f.SOCKET_HEADINGS) * np.diff(gait[:, :, 0], axis=0)
+        for leg in range(GA.NUM_LEGS):
+            airborne_motion = forward[:, leg][up[:-1, leg] & up[1:, leg]]
+            self.assertTrue((airborne_motion > 0).all())
+            self.assertLess(float(forward[:, leg][~up[:-1, leg] & ~up[1:, leg]].sum()), 0)
+
+    def test_run_GA_passes_initial_std_to_population(self) -> None:
+        generations = GA.run_GA(4, 0, 0, 0, 0, GA.tournament_selection, 7, initial_std=0.02)
+        np.testing.assert_array_equal(generations[0], GA.init_population(4, 7, initial_std=0.02))
 
 
 class TestCrossover(unittest.TestCase):

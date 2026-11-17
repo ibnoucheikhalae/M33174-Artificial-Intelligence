@@ -86,15 +86,15 @@ Selection then removes bad candidates. This keeps a fitness gradient alive that 
 
 ## 4. Initial population
 
-Half of the initial population (`seeded_fraction = 0.5`) is **seeded** with sensible starting candidates; the other half is uniform random within the joint limits. Seeding the start is legitimate because it only chooses where the search begins — everything after generation 0 is decided by the operators, the fitness function and selection. Vice, Sukthankar and Douglas (2022) seed the same way, starting from mutations of a hand-tuned gait.
+Every individual starts from the same reference gait plus independent Gaussian noise (`initial_std = 0.005` radians). Seeding the start is legitimate because it only chooses where the search begins — everything after generation 0 is decided by the operators, the fitness function and selection. Vice, Sukthankar and Douglas (2022) seed the same way, starting from mutations of a hand-tuned gait.
 
 A seed gait (`sinusoidal_seed_gait`) is built from:
 
-- a smoothstep hip sweep through the three required keyframe poses (SPREAD → CLOSE → SPREAD);
-- half-rectified sinusoidal thigh/knee lifts, \( \max(\sin \varphi, 0)^2 \), with adjacent legs in opposite phase (a tetrapod rhythm), a random whole number of step cycles (3–6), random per-leg amplitudes and phase jitter;
+- hip sweeps phased with each leg’s lift: forward while airborne, backward while planted, without blending back to standing at the endpoints;
+- half-rectified sinusoidal thigh/knee lifts, \( \max(\sin \varphi, 0)^2 \), with adjacent legs in opposite phase (a tetrapod rhythm), `NUM_STEPS` cycles shared by hips and knees;
 - small Gaussian noise over every gene so no two seeds are identical.
 
-The sinusoid appears **only here**. It is not a fitness target: evolution is free to keep, distort or abandon the rhythm, and the uniform random half of the population preserves unbiased diversity (it scores around −25 initially and is culled within a few generations, which also demonstrates that selection works).
+The sinusoid appears **only here**. It is not a fitness target: evolution is free to keep, distort or abandon the rhythm.
 
 ## 5. Fitness function
 
