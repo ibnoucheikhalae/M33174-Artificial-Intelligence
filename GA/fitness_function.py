@@ -9,6 +9,7 @@ or clamping would destroy.
 
 fitness = BASE_FITNESS
         + MOVEMENT_WEIGHT * movement_reward
+        + STEP_WEIGHT * step_reward
         - sum over penalties of  weight * (raw_error / scale)
 
 Every raw measure is normalised by the joint ranges (or the leg spacing) so
@@ -18,10 +19,8 @@ term's full weight. `fitness_breakdown` exposes each term for analysis.
 
 import numpy as np
 from numpy.typing import NDArray
-from GA.GA import (
+from GA.gait_constants import (
     NUM_FRAMES,
-    NUM_LEG_SEGS,
-    NUM_LEGS,
     MIN_JOINT_ANGLES,
     MAX_JOINT_ANGLES,
     KEYFRAMES,
@@ -29,6 +28,8 @@ from GA.GA import (
     COUPLES,
 )
 from GA.kinematics import (
+    NUM_LEGS,
+    NUM_LEG_SEGS,
     HEADING_ORDER,
     SOCKET_HEADINGS,
     NOMINAL_GAPS,
@@ -73,6 +74,8 @@ FULL_MOVEMENT_STD = 0.15
 BASE_FITNESS = 1.0
 MOVEMENT_WEIGHT = 0.3
 STEP_WEIGHT = 1.0
+# Theoretical upper bound: full rewards and zero penalties may not be jointly attainable.
+MAX_FITNESS = BASE_FITNESS + MOVEMENT_WEIGHT + STEP_WEIGHT
 
 # Each penalty term: (weight, scale). A raw error equal to `scale` costs
 # `weight` fitness. These are soft scoring scales, not hard limits; fitness
@@ -309,7 +312,6 @@ def fitness_function(gait: NDArray[np.float64]) -> float:
     gait: (300, 8, 3) joint angles in radians. Out-of-range angles are valid
     input: they are scored (badly), never rejected or corrected.
 
-    The best possible score is BASE_FITNESS + MOVEMENT_WEIGHT + STEP_WEIGHT;
-    the result can be negative.
+    The theoretical upper bound is MAX_FITNESS; the result can be negative.
     """
     return float(BASE_FITNESS + sum(fitness_breakdown(gait).values()))

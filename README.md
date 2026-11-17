@@ -198,3 +198,24 @@ Raheem, F. A. and Khaleel, H. Z. (2015). Hexapod robot static stability enhancem
 Vice, J., Sukthankar, G. and Douglas, P. K. (2022). Leveraging evolutionary algorithms for feasible hexapod locomotion across uneven terrain. In: *Proceedings of the 35th International FLAIRS Conference*. https://doi.org/10.48550/arXiv.2203.15948
 
 Wang, B., Cui, X., Sun, J. and Gao, Y. (2021). Parameters optimization of central pattern generators for hexapod robot based on multi-objective genetic algorithm. *International Journal of Advanced Robotic Systems*. https://doi.org/10.1177/17298814211044934
+
+### GA training-data export
+
+The GA script's `main()` saves every distinct individual with fitness strictly
+above `FITNESS_SAVE_THRESHOLD` (set in `GA/GA.py`) to `NN/data/`. This includes
+all generations, from the initial population through the final generation.
+Repeated elite gaits are saved once. Archives are written after all generations
+finish. The script immediately prints the configured threshold and absolute
+destination, then reports each generation's fitness and qualifying count as it
+runs. If no individual exceeds the threshold, it prints that no NN data was
+saved; this is an ordinary outcome, not an error. The configuration experiment
+also explicitly exports each run's qualifying gaits. `run_GA()` itself only
+runs evolution and returns the history; library callers choose whether to export.
+Its optional `on_generation` callback lets a caller collect fitness and display
+live progress without putting logging or file handling inside the algorithm.
+
+Each `run_<id>.npz` archive contains `gaits` with shape `(N, 300, 8, 3)` in
+radians, `fitness` and `generation_indices` with shape `(N,)`, and the threshold.
+`GAIT_DATA_DIRECTORY` and `FITNESS_SAVE_THRESHOLD` are defined in `GA/GA.py`.
+No copying of `recent_run.pkl` is needed; that file remains available for rendering.
+

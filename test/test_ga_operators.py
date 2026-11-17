@@ -146,12 +146,12 @@ class TestTraining(unittest.TestCase):
     def test_elitism_keeps_best_fitness_monotonic(self) -> None:
         for selection in [GA.tournament_selection, GA.roulette_selection]:
             with self.subTest(selection=selection.__name__):
-                generations = GA.run_GA_training(8, 3, 1, 0.05, 0.02, selection, 42)
+                generations = GA.run_GA(8, 3, 1, 0.05, 0.02, selection, 42)
                 scores = [GA.evaluate_fitness(population).max() for population in generations]
                 self.assertTrue((np.diff(scores) >= -1e-12).all())
 
     def test_initial_generation_matches_init_population(self) -> None:
-        generations = GA.run_GA_training(4, 0, 0, 0, 0, GA.tournament_selection, 7)
+        generations = GA.run_GA(4, 0, 0, 0, 0, GA.tournament_selection, 7)
         np.testing.assert_array_equal(generations[0], GA.init_population(4, seed=7))
 
 

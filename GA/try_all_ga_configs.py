@@ -1,4 +1,4 @@
-"""
+r"""
 File which tries every GA permutation across 3 variables:
     - Selection method (tourney Vs roulette)
     - Crossover rate (range)
@@ -31,8 +31,9 @@ import pickle
 from datetime import datetime
 from typing import Dict, Optional, TypedDict
 from numpy.typing import NDArray
+from GA import GA
 from GA.GA import (
-    run_GA_training,
+    run_GA,
     tournament_selection,
     roulette_selection,
     evaluate_fitness,
@@ -102,7 +103,7 @@ def try_all_permutations(
                 for mutation_std in MUT_STDS:
                     key = (selection_key, crossover_rate, mutation_rate, mutation_std)
                     print(f"Trying config: {key}")
-                    generations = run_GA_training(
+                    generations = run_GA(
                         population_size=100,
                         num_generations=50,
                         crossover_rate=crossover_rate,
@@ -112,6 +113,15 @@ def try_all_permutations(
                         pop_seed=seed,
                         seeded_fraction=seeded_fraction,
                     )
+                    # The experiment driver owns data export; run_GA only evolves.
+                    fitness = np.array([evaluate_fitness(population) for population in generations])
+                    archive_path = GA.save_training_gaits(
+                        generations, fitness, GA.GAIT_DATA_DIRECTORY, GA.FITNESS_SAVE_THRESHOLD
+                    )
+                    if archive_path is None:
+                        print(f"No gaits exceeded fitness {GA.FITNESS_SAVE_THRESHOLD}; no NN data saved.")
+                    else:
+                        print(f"Saved qualifying NN training gaits to {archive_path}")
                     summary = summarise_generations(generations)
                     del generations
                     all_permuations[key] = summary
@@ -120,6 +130,7 @@ def try_all_permutations(
 
 
 def main(file_to_read: Optional[str] = None):
+    """Run the configuration experiment or inspect its saved summary."""
 
     # In write mode
     if file_to_read is None:
