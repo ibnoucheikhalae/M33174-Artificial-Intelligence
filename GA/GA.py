@@ -6,6 +6,7 @@ and final populations, are considered. Gaits stay in radians and are grouped by
 run so descendants can remain together in the NN's training/test split.
 """
 
+import hashlib
 import pickle
 import random
 import sys
@@ -290,26 +291,16 @@ def mutate(
 
 
 def save_training_gaits(
-    generations: NDArray[np.float64],
+    gaits: NDArray[np.float64],
     fitness: NDArray[np.float64],
+    generation_indices: NDArray[np.int64],
     directory: Path = GAIT_DATA_DIRECTORY,
-    threshold: float = FITNESS_SAVE_THRESHOLD,
 ) -> Path | None:
-    """Save all distinct individuals above threshold from an already-scored run.
+    """Save qualifying gaits, scores, and source generations collected by a callback.
 
-    generations has shape (generations, population, frames, legs, joints), and
-    fitness has shape (generations, population). These are produced internally
-    by the GA and its caller, so no data validation or fitness recalculation is needed.
-
-    Returns the new archive path, or None if no individual qualifies. Each run
-    gets its own file containing gaits (N, 300, 8, 3) in radians, fitness (N,),
-    and generation_indices (N,). Exact duplicate elites are stored only once,
-    using their first occurrence. Compressed NumPy archives require no pickle.
+    Gaits have shape (N, 300, 8, 3); fitness and generation_indices have shape
+    (N,). Exact duplicates are stored once, using their first occurrence.
     """
-    qualifying = fitness > threshold
-    # Boolean indexing over the first two axes collects qualifying individuals
-    # from every generation into one (number_of_gaits, frames, legs, joints) array.
-    gaits = generations[qualifying]
     if len(gaits) == 0:
         return None
 
@@ -317,15 +308,14 @@ def save_training_gaits(
     # Sorting those indices restores the original generation/population order.
     _, first_occurrences = np.unique(gaits, axis=0, return_index=True)
     first_occurrences.sort()
-    generation_indices = np.nonzero(qualifying)[0]  # Row index = source generation.
     directory.mkdir(parents=True, exist_ok=True)
     output_path = directory / f"run_{uuid4().hex}.npz"
     np.savez_compressed(
         output_path,
         gaits=gaits[first_occurrences],
-        fitness=fitness[qualifying][first_occurrences],
+        fitness=fitness[first_occurrences],
         generation_indices=generation_indices[first_occurrences],
-        threshold=threshold,
+        threshold=FITNESS_SAVE_THRESHOLD,
     )
     return output_path
 
@@ -341,7 +331,7 @@ def run_GA(
     ],
     pop_seed: Optional[int] = None,
     initial_std: float = 0.005,
-    on_generation: Callable[[int, NDArray[np.float64]], None] | None = None,
+    on_generation: Callable[[int, NDArray[np.float64], NDArray[np.float64]], None] | None = None,
 ) -> NDArray[np.float64]:
     """
     Runs the actual genetic algorithim training using the input control variables.
@@ -354,36 +344,31 @@ def run_GA(
         2.c) Apply Crossover -- generate new population
         2.d) Mutate new population
         2.e) pop = new_pop
-    3) Return all generations for exterior data analysis
+    3) Return the final population
 
     ``initial_std`` sets the initial Gaussian noise in radians around the
     common hip-and-knee reference gait.
 
     ``on_generation`` is an optional observer called with the generation index and
-    its fitness vector, including generation zero and the final generation.
-    The observer must not modify the fitness vector. The algorithm itself does
-    not log progress, filter training data, or write files; callers own these
-    responsibilities.
+    its fitness vector and population, including generation zero and the final generation.
+    The observer must not modify either array and must copy any gaits it retains.
+    The algorithm itself does not log progress, filter training data, or write files;
+    callers own these responsibilities.
 
     Returns:
-        generations: NDArray[np.float64]; shape = (num_generations+1, population_size, NUM_FRAMES, NUM_LEGS, NUM_LEG_SEGS)
-            - Every generation of this training run in order
+        pop: NDArray[np.float64]; shape = (population_size, NUM_FRAMES, NUM_LEGS, NUM_LEG_SEGS)
+            - The final population; previous populations are discarded
     """
 
     # 1) Initialise Population
     pop = init_population(population_size, pop_seed, initial_std)
-
-    # Extra step: Store all generations so we can do data analysis on them later
-    # num_generations+1 as initial population is considered generation 0
-    generations = np.empty((num_generations + 1,) + pop.shape)
-    generations[0] = pop
 
     # 2) Training Loop
     for gen in range(1, num_generations + 1):  # +1 because the initial population is gen 0
         # 2.a) Evaluate Population Fitness
         population_fitness = evaluate_fitness(pop)
         if on_generation is not None:
-            on_generation(gen - 1, population_fitness)
+            on_generation(gen - 1, population_fitness, pop)
 
         # 2.b) Select Individuals for Crossover
         # n=population_size means population won't shrink/grow
@@ -400,50 +385,40 @@ def run_GA(
 
         # 2.e)
         pop = new_pop
-        generations[gen] = pop
 
     if on_generation is not None:
         # The final population has not yet been scored by the evolution loop.
-        on_generation(num_generations, evaluate_fitness(pop))
-    return generations
+        on_generation(num_generations, evaluate_fitness(pop), pop)
+    return pop
 
 
-def plot_fitness_history(generations: NDArray[np.float64], configuration: str) -> "Axes":
+def plot_fitness_history(fitness: NDArray[np.float64], configuration: str) -> "Axes":
     """Plot mean fitness and the worst-to-best range for each generation.
 
-    Pass the full history returned by run_GA, including generation 0,
+    Pass recorded (mean, worst, best) fitness per generation, including generation 0,
     and a readable configuration string for the title, for example:
     "Tournament | population=100 | crossover=0.2 | mutation=0.01 | std=0.1".
 
     The shaded band is the population's minimum-to-maximum fitness range,
-    not a confidence interval. Fitness is recomputed using the current scoring
-    function. Saved summaries alone do not contain the worst fitness values.
+    not a confidence interval. Fitness is recorded by the generation callback.
     Returns the Matplotlib axes so callers can save the figure or call plt.show().
     """
     import matplotlib.pyplot as plt
     from matplotlib.ticker import MaxNLocator
 
-    if (
-        generations.ndim != 5
-        or generations.shape[2:] != (NUM_FRAMES, NUM_LEGS, NUM_LEG_SEGS)
-        or 0 in generations.shape[:2]
-    ):
-        raise ValueError("Expected a non-empty history of populations from run_GA")
-
-    fitness = np.array([evaluate_fitness(population) for population in generations])
-    generation_numbers = np.arange(len(generations))
+    generation_numbers = np.arange(len(fitness))
     _, axes = plt.subplots(layout="constrained")
-    axes.plot(generation_numbers, fitness.mean(axis=1), label="Mean fitness")
+    axes.plot(generation_numbers, fitness[:, 0], label="Mean fitness")
     axes.fill_between(
         generation_numbers,
-        fitness.min(axis=1),
-        fitness.max(axis=1),
+        fitness[:, 1],
+        fitness[:, 2],
         alpha=0.2,
         label="Worst-best fitness",
     )
     axes.set_title(configuration, wrap=True)
     axes.set_xlabel("Generation (0 = initial population)")
-    axes.set_xlim(0, max(1, len(generations) - 1))
+    axes.set_xlim(0, max(1, len(fitness) - 1))
     axes.xaxis.set_major_locator(MaxNLocator(integer=True))
     axes.set_ylabel("Fitness (higher is better)")
     axes.grid(alpha=0.3)
@@ -472,19 +447,33 @@ def main(printy: bool = False) -> int:
         flush=True,
     )
     fitness_history = []
+    qualifying_gaits = []
+    qualifying_fitness = []
+    generation_indices = []
+    fitneses = np.empty(0)
 
-    def record_generation(generation: int, fitness: NDArray[np.float64]) -> None:
-        """Collect generation scores for export and optionally display progress."""
-        fitness_history.append(fitness.copy())
+    def record_generation(
+        generation: int, fitness: NDArray[np.float64], population: NDArray[np.float64]
+    ) -> None:
+        """Collect summary scores and qualifying gaits, and optionally display progress."""
+        nonlocal fitneses
+        fitneses = fitness
+        fitness_history.append((fitness.mean(), fitness.min(), fitness.max()))
+        for index in np.flatnonzero(fitness > FITNESS_SAVE_THRESHOLD):
+            gait = population[index]
+            qualifying_gaits.append(gait.copy())
+            qualifying_fitness.append(fitness[index])
+            generation_indices.append(generation)
         if printy:
             print(
                 f"Generation {generation}/{num_generations}: "
                 f"best={fitness.max():.6f}; mean={fitness.mean():.6f}; "
+                f"worst={fitness.min():.6f}; "
                 f"qualifying={np.count_nonzero(fitness > FITNESS_SAVE_THRESHOLD)}",
                 flush=True,
             )
 
-    generations = run_GA(
+    last_generation = run_GA(
         population_size=population_size,
         num_generations=num_generations,
         crossover_rate=crossover_rate,
@@ -495,29 +484,29 @@ def main(printy: bool = False) -> int:
         on_generation=record_generation,
     )
     archive_path = save_training_gaits(
-        generations, np.asarray(fitness_history), data_directory, FITNESS_SAVE_THRESHOLD
+        np.asarray(qualifying_gaits), np.asarray(qualifying_fitness),
+        np.asarray(generation_indices, dtype=np.int64), data_directory
     )
     if archive_path is None:
         print(f"No gaits exceeded fitness {FITNESS_SAVE_THRESHOLD}; no NN data saved.", flush=True)
     else:
         print(f"Saved qualifying NN training gaits to {archive_path}", flush=True)
 
-    last_generation = generations[-1]
-    fitneses = fitness_history[-1]
     best_fitness = np.max(fitneses)
     best_indx = np.where(fitneses == best_fitness)
     summ = {
         "best_fitness": best_fitness,
         "average_fitenss": np.mean(last_generation),
         "best_gait": last_generation[best_indx],
-        "best_generation": last_generation
+        "best_generation": last_generation,
+        "fitness_history": np.asarray(fitness_history),
     }
     with open("recent_run.pkl", "wb") as file:
         pickle.dump(summ, file, protocol=pickle.HIGHEST_PROTOCOL)
 
     selection_name = f"Tournament (size={tournament_size})"
     plot_fitness_history(
-        generations,
+        np.asarray(fitness_history),
         f"{selection_name} | population={population_size} | generations={num_generations}\n"
         f"crossover={crossover_rate:g} | mutation={mutation_rate:g} | std={mutation_std:g}"
         f" | initial_std={initial_std}",

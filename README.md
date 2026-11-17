@@ -210,9 +210,9 @@ destination, then reports each generation's fitness and qualifying count as it
 runs. If no individual exceeds the threshold, it prints that no NN data was
 saved; this is an ordinary outcome, not an error. The configuration experiment
 also explicitly exports each run's qualifying gaits. `run_GA()` itself only
-runs evolution and returns the history; library callers choose whether to export.
-Its optional `on_generation` callback lets a caller collect fitness and display
-live progress without putting logging or file handling inside the algorithm.
+runs evolution and returns the final population; earlier populations are discarded.
+Its optional `on_generation(generation, fitness, population)` callback collects
+qualifying gaits and mean/worst/best fitness for plotting, and displays live progress.
 
 Each `run_<id>.npz` archive contains `gaits` with shape `(N, 300, 8, 3)` in
 radians, `fitness` and `generation_indices` with shape `(N,)`, and the threshold.
