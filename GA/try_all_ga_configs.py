@@ -40,12 +40,14 @@ from GA.GA import (
 
 SELECTION_METHODS = [tournament_selection, roulette_selection]
 
-CO_RATES = [0.05, 0.1, 0.2]
+CO_RATES = [0.3, 0.6, 0.9]
 
-# Discrete values to save on computation time
-MUT_RATES = [0.001, 0.005, 0.01]
+# Discrete values to save on computation time. Bracket the operating point
+# found by hand (rate 0.002, std 0.01): more/larger mutations drown children
+# in jitter penalties, fewer stall exploration.
+MUT_RATES = [0.001, 0.002, 0.005]
 
-MUT_STDS = [0.002, 0.005, 0.01]
+MUT_STDS = [0.005, 0.01, 0.02]
 
 ConfigKey = tuple[str, float, float, float]
 
@@ -79,15 +81,16 @@ def summarise_generations(generations: NDArray[np.float64]) -> RunSummary:
 
 
 def try_all_permutations(
-    seed: int, initial_std: Optional[float] = None
+    seed: int, seeded_fraction: float = 0.5
 ) -> Dict[ConfigKey, RunSummary]:
     """
     Returns a dictionary where the keys are the used settings and the values are the history
     of generations -- shape =
     (num_permutations, num_generations+1, population_size, NUM_FRAMES, NUM_LEGS, NUM_LEG_SEGS)
 
-    initial_std controls Gaussian noise around the reference (radians).
-    Pass None to compare against uniform random initialization.
+    seeded_fraction controls how much of each initial population comes from
+    sinusoidal seed gaits; the rest is uniform random. Pass 0.0 to compare
+    against fully random initialisation.
     """
     all_permuations = {}
     for selection_method in SELECTION_METHODS:
@@ -107,7 +110,7 @@ def try_all_permutations(
                         mutation_std=mutation_std,
                         selection_method=selection_method,
                         pop_seed=seed,
-                        initial_std=initial_std,
+                        seeded_fraction=seeded_fraction,
                     )
                     summary = summarise_generations(generations)
                     del generations
