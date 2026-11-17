@@ -1,10 +1,4 @@
 """Diagnostic graphs for a `run_GA_training` run.
-
-Adapted from an experimental sinusoidal-gait GA so it works directly with our
-shared GA (`GA.GA`). Unlike that experiment, our chromosome already *is* a
-gait - shape (NUM_FRAMES, NUM_LEGS, NUM_LEG_SEGS) of joint angles in radians -
-so no decode step is needed.
-
 Usage:
     from GA.GA import run_GA_training, evaluate_fitness, tournament_selection
     from GA.evolution_graphs import (
