@@ -1,7 +1,8 @@
 """Shared spider geometry and forward kinematics.
 
-Used by the 3D plot and by the fitness function so overlap, foot height and
-the picture all mean the same robot. No matplotlib, no GA operators.
+Mostly generated with AI from the supplied MATLAB renderer, then checked
+against that file so the 3D plot and the fitness function describe the same
+robot. No matplotlib, no GA operators.
 """
 
 import numpy as np
@@ -14,6 +15,7 @@ LEG_LABELS = ["L1", "L2", "L3", "L4", "R4", "R3", "R2", "R1"]
 BODY_A = 1.5
 BODY_B = 1.0
 SEGMENT_LENGTHS = np.array([1.2, 0.7, 1.0])  # coxa, femur, tibia
+NUM_LEG_SEGS = int(SEGMENT_LENGTHS.shape[0])
 COXA_ELEVATION = np.deg2rad(30)
 
 # Socket headings around the body, storage order L1..L4, R4..R1.

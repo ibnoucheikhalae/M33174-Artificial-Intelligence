@@ -4,6 +4,7 @@ Usage:
     python render_gait.py recent_run.pkl                 # interactive window
     python render_gait.py recent_run.pkl --save out.gif  # save headlessly
     python render_gait.py recent_run.pkl --save out.gif --stride 3
+        # --stride 3 = use every 3rd frame (100 of 300). Faster gif, choppier motion.
 
 Accepts either a pickle holding {"best_gait": (300, 8, 3) array, ...} or a
 raw .npy gait array.

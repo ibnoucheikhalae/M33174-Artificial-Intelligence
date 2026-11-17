@@ -9,9 +9,9 @@ from typing import TYPE_CHECKING, Callable, Optional
 if TYPE_CHECKING:
     from matplotlib.axes import Axes
 
+from GA.kinematics import LEG_LABELS, NUM_LEG_SEGS, NUM_LEGS
+
 NUM_FRAMES = 300
-NUM_LEGS = 8
-NUM_LEG_SEGS = 3
 
 
 # Joint limits in radians. (hip, thigh, knee)
@@ -511,14 +511,14 @@ def main(printy: bool = False) -> int:
     best_index = int(fitness_history[-1].argmax())
     best_gait = last_generation[best_index]
 
+    # Prints numbers for now; later this can write a set of plots instead.
     # Lecturer's check: every joint should visibly evolve. Report how much
     # each joint moves over the best gait so a stuck joint is easy to spot.
     if printy:
         joint_motion = best_gait.std(axis=0)  # (NUM_LEGS, NUM_LEG_SEGS)
         print("Per-joint motion (std over frames, radians):")
         print("leg    hip    thigh  knee")
-        leg_names = ["L1", "L2", "L3", "L4", "R4", "R3", "R2", "R1"]
-        for name, (hip, thigh, knee) in zip(leg_names, joint_motion):
+        for name, (hip, thigh, knee) in zip(LEG_LABELS, joint_motion):
             print(f"{name}   {hip:6.3f} {thigh:6.3f} {knee:6.3f}")
         from GA.fitness_function import fitness_breakdown, foot_heights, STANCE_Z
 
