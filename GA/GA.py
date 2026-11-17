@@ -460,7 +460,10 @@ def main(printy: bool = False) -> int:
     crossover_rate = 0.6
     mutation_rate = 0.005
     mutation_std = 0.02
-    selection_method = tournament_selection
+    tournament_size = 2
+    selection_method = lambda pop, fitness, n: tournament_selection(
+        pop, fitness, n, tournament_size=tournament_size
+    )
     initial_std = 0.5
     data_directory = Path(GAIT_DATA_DIRECTORY).resolve()
     print(
@@ -512,7 +515,7 @@ def main(printy: bool = False) -> int:
     with open("recent_run.pkl", "wb") as file:
         pickle.dump(summ, file, protocol=pickle.HIGHEST_PROTOCOL)
 
-    selection_name = selection_method.__name__.removesuffix("_selection").replace("_", " ").title()
+    selection_name = f"Tournament (size={tournament_size})"
     plot_fitness_history(
         generations,
         f"{selection_name} | population={population_size} | generations={num_generations}\n"
