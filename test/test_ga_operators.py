@@ -101,10 +101,10 @@ class TestMutate(unittest.TestCase):
     def test_no_clamping_to_joint_limits(self) -> None:
         # Mutating from the upper limit must be able to exceed it.
         population = np.broadcast_to(
-            GA.MAX_JOINT_ANGLES, (2, 300, 8, 3)
+            f.MAX_JOINT_ANGLES, (2, 300, 8, 3)
         ).copy()
         mutated = GA.mutate(population, 1, 0.5)
-        self.assertTrue((mutated > GA.MAX_JOINT_ANGLES).any())
+        self.assertTrue((mutated > f.MAX_JOINT_ANGLES).any())
 
     def test_sparse_rate_mutates_expected_fraction(self) -> None:
         population = np.zeros((2, 300, 8, 3))

@@ -34,8 +34,8 @@ class TestJointLimitPenalty(unittest.TestCase):
     def test_grows_with_violation_size(self) -> None:
         small = static_gait(GA.SPREAD)
         large = static_gait(GA.SPREAD)
-        small[:, 0, 0] = GA.MAX_JOINT_ANGLES[0, 0] + 0.1
-        large[:, 0, 0] = GA.MAX_JOINT_ANGLES[0, 0] + 1.0
+        small[:, 0, 0] = f.MAX_JOINT_ANGLES[0, 0] + 0.1
+        large[:, 0, 0] = f.MAX_JOINT_ANGLES[0, 0] + 1.0
         self.assertGreater(f.joint_limit_penalty(small), 0.0)
         self.assertAlmostEqual(
             f.joint_limit_penalty(large) / f.joint_limit_penalty(small), 10.0
@@ -43,7 +43,7 @@ class TestJointLimitPenalty(unittest.TestCase):
 
     def test_below_minimum_counts_too(self) -> None:
         gait = static_gait(GA.SPREAD)
-        gait[:, 2, 2] = GA.MIN_JOINT_ANGLES[2, 2] - 0.5
+        gait[:, 2, 2] = f.MIN_JOINT_ANGLES[2, 2] - 0.5
         self.assertGreater(f.joint_limit_penalty(gait), 0.0)
 
 

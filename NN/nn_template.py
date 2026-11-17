@@ -11,7 +11,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from numpy.typing import NDArray
 
-from GA.GA import MAX_JOINT_ANGLES, MIN_JOINT_ANGLES, evaluate_fitness
+from GA.GA import evaluate_fitness
+from GA.gait_constants import MAX_JOINT_ANGLES, MIN_JOINT_ANGLES
 from NN.NN import NeuralNetwork
 
 FloatArray: TypeAlias = NDArray[np.float64]
