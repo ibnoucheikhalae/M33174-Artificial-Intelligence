@@ -110,7 +110,7 @@ Every raw measure is normalised by the joint ranges (or the legs' angular spacin
 | `movement_reward` | Mean per-joint credit \( \min(\sigma_j / 0.15, 1) \). Makes a stuck joint directly measurable. | +0.3 max |
 | `joint_limit_penalty` | RMS range-normalised violation beyond the joint limits. Replaces clamping. | 1.0 / 0.02 |
 | `leg_overlap_penalty` | Legs' headings (socket heading + hip yaw) must stay in order around the body. | 0.8 / 0.05 |
-| `target_pose_penalty` | RMS range-normalised error at frames 0, 150, 299 against SPREAD, CLOSE, SPREAD. | 1.0 / 0.05 |
+| `target_pose_penalty` | RMS range-normalised error at frames 0, 150, 299 against SPREAD, CLOSE, SPREAD (weak preference). | 0.05 / 0.05 |
 | `acceleration_penalty` | RMS range-normalised second difference. Smooth 4-cycle stepping is cheap; mutation spikes are not. | 0.25 / 0.01 |
 | `symmetry_penalty` | RMS range-normalised error between each left leg and its mirrored right partner. | 0.3 / 0.10 |
 | `couple_penalty` | RMS range-normalised thigh/knee error between ipsilateral couples (L1-L3, L2-L4, R1-R3, R2-R4). Hips are excluded: front and rear must yaw inward from opposite sides to hit CLOSE. | 0.5 / 0.08 |
@@ -175,7 +175,7 @@ A representative single run (pop 60, tournament, \(p_c = 0.6\), \(p_m = 0.002\),
 
 **Smoothing mutations into the gait.** We previously centred mutations on the mean of the neighbouring frames (and, in an experiment, low-pass filtered every child). Rejected: blending a mutation into the movement by adjusting the trajectory is manual correction of what selection should decide; the acceleration penalty now plays that role.
 
-**Pinning the first and last frames to the required poses.** Rejected for the same reason: a hard overwrite is repair. The keyframe penalty holds the endpoints instead, and the endpoint frames remain evolvable genes.
+**Pinning the first and last frames to the required poses.** Rejected for the same reason: a hard overwrite is repair. The keyframe penalty provides only a weak pose preference, and the endpoint frames remain evolvable genes.
 
 **Tracking a dense 300-frame reference gait in the fitness.** An earlier fitness compared every frame against a hand-designed interpolated trajectory. Rejected: it reduces the GA to copying our design, and the 297 intermediate frames are exactly what evolution should discover. Only the three task keyframes are scored; the hand-designed waveform survives solely as an initial-population seed.
 

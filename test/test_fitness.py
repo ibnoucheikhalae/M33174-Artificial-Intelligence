@@ -81,6 +81,13 @@ class TestTargetPosePenalty(unittest.TestCase):
         gait[150] += 0.3  # keyframe
         self.assertGreater(f.target_pose_penalty(gait), 0.0)
 
+    def test_keyframe_pose_preference_is_weak(self) -> None:
+        gait = GA.ideal_hip_movement()
+        gait[f.KEYFRAMES] += 0.3
+        contribution = f.fitness_breakdown(gait)["target_pose"]
+        self.assertLess(contribution, 0.0)
+        self.assertGreater(contribution, -0.1)
+
 
 class TestAccelerationPenalty(unittest.TestCase):
     def test_constant_motion_is_free(self) -> None:
@@ -145,6 +152,27 @@ class TestStepReward(unittest.TestCase):
         seed = GA.sinusoidal_seed_gait()
         self.assertGreater(f.step_reward(seed), 0.4)
         self.assertGreater(f.step_reward(seed), f.step_reward(GA.ideal_hip_movement()) + 0.3)
+
+    def test_swing_credit_requires_forward_swing_and_backward_stance(self) -> None:
+        seed = GA.sinusoidal_seed_gait()
+        reversed_hips = seed.copy()
+        reversed_hips[:, :, 0] *= -1
+        static_hips = seed.copy()
+        static_hips[:, :, 0] = GA.SPREAD[:, 0]
+        self.assertGreater(f.step_reward(seed), f.step_reward(reversed_hips) + 0.1)
+        self.assertGreater(f.step_reward(seed), f.step_reward(static_hips) + 0.1)
+
+    def test_hip_changes_between_lifts_do_not_earn_swing_credit(self) -> None:
+        gait = GA.sinusoidal_seed_gait()
+        gait = np.concatenate([gait[:100]] * 3)
+        up = f.foot_heights(gait) > f.STANCE_Z + f.AIRBORNE_CLEARANCE
+        for leg in range(f.NUM_LEGS):
+            # Each airborne bout has a different, constant hip angle.
+            bout = np.cumsum(up[:, leg] & ~np.roll(up[:, leg], 1))
+            gait[:, leg, 0] = np.where(bout % 2, 0.5, -0.5)
+        static_hips = gait.copy()
+        static_hips[:, :, 0] = GA.SPREAD[:, 0]
+        self.assertAlmostEqual(f.step_reward(gait), f.step_reward(static_hips))
 
     def test_all_eight_legs_in_the_air_is_penalised(self) -> None:
         airborne = static_gait(GA.SPREAD)
