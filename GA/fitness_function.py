@@ -100,7 +100,7 @@ PENALTY_WEIGHTS_AND_SCALES = {
     "joint_limit": (1.0, 0.02),
     "leg_overlap": (0.8, 0.05),
     "target_pose": (0.05, 0.05),
-    "acceleration": (0.25, 0.01),
+    "acceleration": (1, 0.01),
     "symmetry": (0.3, 0.10),
     "couple": (0.5, 0.08),
     "support": (0.6, 0.25),
