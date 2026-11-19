@@ -9,6 +9,7 @@ or clamping would destroy.
 
 fitness = BASE_FITNESS
         + MOVEMENT_WEIGHT * movement_reward
+        + STEP_WEIGHT * step_reward
         - sum over penalties of  weight * (raw_error / scale)
 
 Every raw measure is normalised by the joint ranges (or the leg spacing) so
@@ -18,10 +19,8 @@ term's full weight. `fitness_breakdown` exposes each term for analysis.
 
 import numpy as np
 from numpy.typing import NDArray
-from GA.GA import (
+from GA.gait_constants import (
     NUM_FRAMES,
-    NUM_LEG_SEGS,
-    NUM_LEGS,
     MIN_JOINT_ANGLES,
     MAX_JOINT_ANGLES,
     KEYFRAMES,
@@ -29,6 +28,8 @@ from GA.GA import (
     COUPLES,
 )
 from GA.kinematics import (
+    NUM_LEGS,
+    NUM_LEG_SEGS,
     HEADING_ORDER,
     SOCKET_HEADINGS,
     NOMINAL_GAPS,
@@ -73,6 +74,8 @@ FULL_MOVEMENT_STD = 0.15
 BASE_FITNESS = 1.0
 MOVEMENT_WEIGHT = 0.3
 STEP_WEIGHT = 1.0
+# Theoretical upper bound: full rewards and zero penalties may not be jointly attainable.
+MAX_FITNESS = BASE_FITNESS + MOVEMENT_WEIGHT + STEP_WEIGHT
 
 # Each penalty term: (weight, scale). A raw error equal to `scale` costs
 # `weight` fitness. These are soft scoring scales, not hard limits; fitness
@@ -82,7 +85,7 @@ STEP_WEIGHT = 1.0
 #                term because it replaces clamping as the constraint.
 #   leg_overlap: RMS gap-normalised crossing. Legs crossing by 5% of their
 #                nominal spacing costs 0.8.
-#   target_pose: RMS range-normalised keyframe error; 5% of range costs 1.0.
+#   target_pose: Weak pose preference; 5% of range costs 0.05.
 #   acceleration: RMS range-normalised second difference. Second differences
 #                grow with frequency squared. The scale lets a smooth 4-cycle
 #                step cost a modest ~0.2, while mutation spikes remain dear.
@@ -96,8 +99,8 @@ STEP_WEIGHT = 1.0
 PENALTY_WEIGHTS_AND_SCALES = {
     "joint_limit": (1.0, 0.02),
     "leg_overlap": (0.8, 0.05),
-    "target_pose": (1.0, 0.05),
-    "acceleration": (0.25, 0.01),
+    "target_pose": (0.05, 0.05),
+    "acceleration": (1, 0.01),
     "symmetry": (0.3, 0.10),
     "couple": (0.5, 0.08),
     "support": (0.6, 0.25),
@@ -239,7 +242,7 @@ def step_reward(gait: NDArray[np.float64]) -> float:
     Full credit needs three things at once:
       - every leg lifts by TARGET_CLEARANCE (a visible step height);
       - the two tetrapod groups step in antiphase, not all eight together;
-      - each airborne foot also yaws at the hip (swing, not a vertical hop).
+      - hips sweep forward while airborne and backward while planted (+x travel).
     """
     _validate_angles(gait, GAIT_SHAPE)
     heights = foot_heights(gait)
@@ -261,7 +264,13 @@ def step_reward(gait: NDArray[np.float64]) -> float:
         if np.count_nonzero(up) < 2:
             swing[leg] = 0.0
         else:
-            swing[leg] = min(float(np.ptp(hip[up, leg])) / TARGET_HIP_SWING, 1.0)
+            # Only count motion within each phase, excluding lift/touchdown jumps.
+            forward = -np.sign(SOCKET_HEADINGS[leg]) * np.diff(hip[:, leg])
+            swing_distance = float(forward[up[:-1] & up[1:]].sum())
+            stance_distance = -float(forward[~up[:-1] & ~up[1:]].sum())
+            swing[leg] = float(
+                np.clip(min(swing_distance, stance_distance) / TARGET_HIP_SWING, 0.0, 1.0)
+            )
 
     return float(0.5 * peak.mean() + 0.3 * alternation + 0.2 * swing.mean())
 
@@ -309,7 +318,6 @@ def fitness_function(gait: NDArray[np.float64]) -> float:
     gait: (300, 8, 3) joint angles in radians. Out-of-range angles are valid
     input: they are scored (badly), never rejected or corrected.
 
-    The best possible score is BASE_FITNESS + MOVEMENT_WEIGHT + STEP_WEIGHT;
-    the result can be negative.
+    The theoretical upper bound is MAX_FITNESS; the result can be negative.
     """
     return float(BASE_FITNESS + sum(fitness_breakdown(gait).values()))

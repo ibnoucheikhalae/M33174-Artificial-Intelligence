@@ -34,8 +34,8 @@ class TestJointLimitPenalty(unittest.TestCase):
     def test_grows_with_violation_size(self) -> None:
         small = static_gait(GA.SPREAD)
         large = static_gait(GA.SPREAD)
-        small[:, 0, 0] = GA.MAX_JOINT_ANGLES[0, 0] + 0.1
-        large[:, 0, 0] = GA.MAX_JOINT_ANGLES[0, 0] + 1.0
+        small[:, 0, 0] = f.MAX_JOINT_ANGLES[0, 0] + 0.1
+        large[:, 0, 0] = f.MAX_JOINT_ANGLES[0, 0] + 1.0
         self.assertGreater(f.joint_limit_penalty(small), 0.0)
         self.assertAlmostEqual(
             f.joint_limit_penalty(large) / f.joint_limit_penalty(small), 10.0
@@ -43,7 +43,7 @@ class TestJointLimitPenalty(unittest.TestCase):
 
     def test_below_minimum_counts_too(self) -> None:
         gait = static_gait(GA.SPREAD)
-        gait[:, 2, 2] = GA.MIN_JOINT_ANGLES[2, 2] - 0.5
+        gait[:, 2, 2] = f.MIN_JOINT_ANGLES[2, 2] - 0.5
         self.assertGreater(f.joint_limit_penalty(gait), 0.0)
 
 
@@ -81,6 +81,13 @@ class TestTargetPosePenalty(unittest.TestCase):
         gait[150] += 0.3  # keyframe
         self.assertGreater(f.target_pose_penalty(gait), 0.0)
 
+    def test_keyframe_pose_preference_is_weak(self) -> None:
+        gait = GA.ideal_hip_movement()
+        gait[f.KEYFRAMES] += 0.3
+        contribution = f.fitness_breakdown(gait)["target_pose"]
+        self.assertLess(contribution, 0.0)
+        self.assertGreater(contribution, -0.1)
+
 
 class TestAccelerationPenalty(unittest.TestCase):
     def test_constant_motion_is_free(self) -> None:
@@ -107,7 +114,7 @@ class TestCouplePenalty(unittest.TestCase):
     def test_standing_and_seed_couples_match(self) -> None:
         self.assertEqual(f.couple_penalty(static_gait(GA.SPREAD)), 0.0)
         self.assertEqual(f.couple_penalty(static_gait(GA.CLOSE)), 0.0)
-        seed = GA.sinusoidal_seed_gait(np.random.default_rng(5))
+        seed = GA.sinusoidal_seed_gait()
         self.assertLess(f.couple_penalty(seed), 0.02)
 
     def test_broken_couple_is_penalised(self) -> None:
@@ -142,9 +149,30 @@ class TestStepReward(unittest.TestCase):
         self.assertAlmostEqual(f.step_reward(GA.ideal_hip_movement()), 0.0, delta=0.05)
 
     def test_seed_steps_harder_than_a_hip_slide(self) -> None:
-        seed = GA.sinusoidal_seed_gait(np.random.default_rng(5))
+        seed = GA.sinusoidal_seed_gait()
         self.assertGreater(f.step_reward(seed), 0.4)
         self.assertGreater(f.step_reward(seed), f.step_reward(GA.ideal_hip_movement()) + 0.3)
+
+    def test_swing_credit_requires_forward_swing_and_backward_stance(self) -> None:
+        seed = GA.sinusoidal_seed_gait()
+        reversed_hips = seed.copy()
+        reversed_hips[:, :, 0] *= -1
+        static_hips = seed.copy()
+        static_hips[:, :, 0] = GA.SPREAD[:, 0]
+        self.assertGreater(f.step_reward(seed), f.step_reward(reversed_hips) + 0.1)
+        self.assertGreater(f.step_reward(seed), f.step_reward(static_hips) + 0.1)
+
+    def test_hip_changes_between_lifts_do_not_earn_swing_credit(self) -> None:
+        gait = GA.sinusoidal_seed_gait()
+        gait = np.concatenate([gait[:100]] * 3)
+        up = f.foot_heights(gait) > f.STANCE_Z + f.AIRBORNE_CLEARANCE
+        for leg in range(f.NUM_LEGS):
+            # Each airborne bout has a different, constant hip angle.
+            bout = np.cumsum(up[:, leg] & ~np.roll(up[:, leg], 1))
+            gait[:, leg, 0] = np.where(bout % 2, 0.5, -0.5)
+        static_hips = gait.copy()
+        static_hips[:, :, 0] = GA.SPREAD[:, 0]
+        self.assertAlmostEqual(f.step_reward(gait), f.step_reward(static_hips))
 
     def test_all_eight_legs_in_the_air_is_penalised(self) -> None:
         airborne = static_gait(GA.SPREAD)
@@ -155,14 +183,14 @@ class TestStepReward(unittest.TestCase):
 
 class TestCombinedFitness(unittest.TestCase):
     def test_breakdown_sums_to_fitness(self) -> None:
-        gait = GA.sinusoidal_seed_gait(np.random.default_rng(5))
+        gait = GA.sinusoidal_seed_gait()
         breakdown = f.fitness_breakdown(gait)
         self.assertAlmostEqual(
             f.fitness_function(gait), f.BASE_FITNESS + sum(breakdown.values())
         )
 
     def test_invalid_candidate_scores_worse_not_errors(self) -> None:
-        valid = GA.sinusoidal_seed_gait(np.random.default_rng(5))
+        valid = GA.sinusoidal_seed_gait()
         invalid = valid.copy()
         invalid[:, 0, 0] += 3.0
         self.assertLess(f.fitness_function(invalid), f.fitness_function(valid))

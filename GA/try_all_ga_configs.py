@@ -1,4 +1,4 @@
-"""
+r"""
 File which tries every GA permutation across 3 variables:
     - Selection method (tourney Vs roulette)
     - Crossover rate (range)
@@ -31,11 +31,11 @@ import pickle
 from datetime import datetime
 from typing import Dict, Optional, TypedDict
 from numpy.typing import NDArray
+from GA import GA
 from GA.GA import (
-    run_GA_training,
+    run_GA,
     tournament_selection,
     roulette_selection,
-    evaluate_fitness,
 )
 
 SELECTION_METHODS = [tournament_selection, roulette_selection]
@@ -63,34 +63,32 @@ class RunSummary(TypedDict):
     best_generation: int
 
 
-def summarise_generations(generations: NDArray[np.float64]) -> RunSummary:
+def summarise_generations(
+    population: NDArray[np.float64], fitness: NDArray[np.float64]
+) -> RunSummary:
     """
-    Summarise the run, including generation 0, without retaining the whole 73GB array
+    Summarise recorded fitness and the final population, including generation 0
     """
-    fitness = np.array([evaluate_fitness(population) for population in generations])
     best_fitness = fitness.max(axis=1)
     best_generation = int(best_fitness.argmax())
-    best_individual = int(fitness[best_generation].argmax())
+    best_individual = int(fitness[-1].argmax())
 
     return {
         "best_fitness": best_fitness,
         "average_fitenss": fitness.mean(axis=1),
-        "best_gait": generations[best_generation, best_individual].copy(),
+        "best_gait": population[best_individual].copy(),
         "best_generation": best_generation,
     }
 
 
 def try_all_permutations(
-    seed: int, seeded_fraction: float = 0.5
+    seed: int, initial_std: float = 0.005
 ) -> Dict[ConfigKey, RunSummary]:
     """
-    Returns a dictionary where the keys are the used settings and the values are the history
-    of generations -- shape =
-    (num_permutations, num_generations+1, population_size, NUM_FRAMES, NUM_LEGS, NUM_LEG_SEGS)
+    Return a fitness summary and best gait for each combination of settings.
 
-    seeded_fraction controls how much of each initial population comes from
-    sinusoidal seed gaits; the rest is uniform random. Pass 0.0 to compare
-    against fully random initialisation.
+    initial_std controls the Gaussian noise in radians around the common
+    hip-and-knee reference gait for every initial individual.
     """
     all_permuations = {}
     for selection_method in SELECTION_METHODS:
@@ -102,7 +100,23 @@ def try_all_permutations(
                 for mutation_std in MUT_STDS:
                     key = (selection_key, crossover_rate, mutation_rate, mutation_std)
                     print(f"Trying config: {key}")
-                    generations = run_GA_training(
+                    fitness_history = []
+                    qualifying_gaits = []
+                    qualifying_fitness = []
+                    generation_indices = []
+
+                    def record_generation(
+                        generation: int,
+                        fitness: NDArray[np.float64],
+                        population: NDArray[np.float64],
+                    ) -> None:
+                        fitness_history.append(fitness.copy())
+                        qualifying = fitness > GA.FITNESS_SAVE_THRESHOLD
+                        qualifying_gaits.extend(population[qualifying])
+                        qualifying_fitness.extend(fitness[qualifying])
+                        generation_indices.extend([generation] * np.count_nonzero(qualifying))
+
+                    population = run_GA(
                         population_size=100,
                         num_generations=50,
                         crossover_rate=crossover_rate,
@@ -110,16 +124,26 @@ def try_all_permutations(
                         mutation_std=mutation_std,
                         selection_method=selection_method,
                         pop_seed=seed,
-                        seeded_fraction=seeded_fraction,
+                        initial_std=initial_std,
+                        on_generation=record_generation,
                     )
-                    summary = summarise_generations(generations)
-                    del generations
+                    # The experiment driver owns data export; run_GA only evolves.
+                    archive_path = GA.save_training_gaits(
+                        np.asarray(qualifying_gaits), np.asarray(qualifying_fitness),
+                        np.asarray(generation_indices, dtype=np.int64), GA.GAIT_DATA_DIRECTORY
+                    )
+                    if archive_path is None:
+                        print(f"No gaits exceeded fitness {GA.FITNESS_SAVE_THRESHOLD}; no NN data saved.")
+                    else:
+                        print(f"Saved qualifying NN training gaits to {archive_path}")
+                    summary = summarise_generations(population, np.asarray(fitness_history))
                     all_permuations[key] = summary
                     print(f"Max final fitness: {summary['best_fitness'][-1]}")
     return all_permuations
 
 
 def main(file_to_read: Optional[str] = None):
+    """Run the configuration experiment or inspect its saved summary."""
 
     # In write mode
     if file_to_read is None:

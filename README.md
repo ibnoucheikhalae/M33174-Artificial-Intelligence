@@ -86,15 +86,15 @@ Selection then removes bad candidates. This keeps a fitness gradient alive that 
 
 ## 4. Initial population
 
-Half of the initial population (`seeded_fraction = 0.5`) is **seeded** with sensible starting candidates; the other half is uniform random within the joint limits. Seeding the start is legitimate because it only chooses where the search begins — everything after generation 0 is decided by the operators, the fitness function and selection. Vice, Sukthankar and Douglas (2022) seed the same way, starting from mutations of a hand-tuned gait.
+Every individual starts from the same reference gait plus independent Gaussian noise (`initial_std = 0.005` radians). Seeding the start is legitimate because it only chooses where the search begins — everything after generation 0 is decided by the operators, the fitness function and selection. Vice, Sukthankar and Douglas (2022) seed the same way, starting from mutations of a hand-tuned gait.
 
 A seed gait (`sinusoidal_seed_gait`) is built from:
 
-- a smoothstep hip sweep through the three required keyframe poses (SPREAD → CLOSE → SPREAD);
-- half-rectified sinusoidal thigh/knee lifts, \( \max(\sin \varphi, 0)^2 \), with adjacent legs in opposite phase (a tetrapod rhythm), a random whole number of step cycles (3–6), random per-leg amplitudes and phase jitter;
+- hip sweeps phased with each leg’s lift: forward while airborne, backward while planted, without blending back to standing at the endpoints;
+- half-rectified sinusoidal thigh/knee lifts, \( \max(\sin \varphi, 0)^2 \), with adjacent legs in opposite phase (a tetrapod rhythm), `NUM_STEPS` cycles shared by hips and knees;
 - small Gaussian noise over every gene so no two seeds are identical.
 
-The sinusoid appears **only here**. It is not a fitness target: evolution is free to keep, distort or abandon the rhythm, and the uniform random half of the population preserves unbiased diversity (it scores around −25 initially and is culled within a few generations, which also demonstrates that selection works).
+The sinusoid appears **only here**. It is not a fitness target: evolution is free to keep, distort or abandon the rhythm.
 
 ## 5. Fitness function
 
@@ -110,7 +110,7 @@ Every raw measure is normalised by the joint ranges (or the legs' angular spacin
 | `movement_reward` | Mean per-joint credit \( \min(\sigma_j / 0.15, 1) \). Makes a stuck joint directly measurable. | +0.3 max |
 | `joint_limit_penalty` | RMS range-normalised violation beyond the joint limits. Replaces clamping. | 1.0 / 0.02 |
 | `leg_overlap_penalty` | Legs' headings (socket heading + hip yaw) must stay in order around the body. | 0.8 / 0.05 |
-| `target_pose_penalty` | RMS range-normalised error at frames 0, 150, 299 against SPREAD, CLOSE, SPREAD. | 1.0 / 0.05 |
+| `target_pose_penalty` | RMS range-normalised error at frames 0, 150, 299 against SPREAD, CLOSE, SPREAD (weak preference). | 0.05 / 0.05 |
 | `acceleration_penalty` | RMS range-normalised second difference. Smooth 4-cycle stepping is cheap; mutation spikes are not. | 0.25 / 0.01 |
 | `symmetry_penalty` | RMS range-normalised error between each left leg and its mirrored right partner. | 0.3 / 0.10 |
 | `couple_penalty` | RMS range-normalised thigh/knee error between ipsilateral couples (L1-L3, L2-L4, R1-R3, R2-R4). Hips are excluded: front and rear must yaw inward from opposite sides to hit CLOSE. | 0.5 / 0.08 |
@@ -175,7 +175,7 @@ A representative single run (pop 60, tournament, \(p_c = 0.6\), \(p_m = 0.002\),
 
 **Smoothing mutations into the gait.** We previously centred mutations on the mean of the neighbouring frames (and, in an experiment, low-pass filtered every child). Rejected: blending a mutation into the movement by adjusting the trajectory is manual correction of what selection should decide; the acceleration penalty now plays that role.
 
-**Pinning the first and last frames to the required poses.** Rejected for the same reason: a hard overwrite is repair. The keyframe penalty holds the endpoints instead, and the endpoint frames remain evolvable genes.
+**Pinning the first and last frames to the required poses.** Rejected for the same reason: a hard overwrite is repair. The keyframe penalty provides only a weak pose preference, and the endpoint frames remain evolvable genes.
 
 **Tracking a dense 300-frame reference gait in the fitness.** An earlier fitness compared every frame against a hand-designed interpolated trajectory. Rejected: it reduces the GA to copying our design, and the 297 intermediate frames are exactly what evolution should discover. Only the three task keyframes are scored; the hand-designed waveform survives solely as an initial-population seed.
 
@@ -198,3 +198,24 @@ Raheem, F. A. and Khaleel, H. Z. (2015). Hexapod robot static stability enhancem
 Vice, J., Sukthankar, G. and Douglas, P. K. (2022). Leveraging evolutionary algorithms for feasible hexapod locomotion across uneven terrain. In: *Proceedings of the 35th International FLAIRS Conference*. https://doi.org/10.48550/arXiv.2203.15948
 
 Wang, B., Cui, X., Sun, J. and Gao, Y. (2021). Parameters optimization of central pattern generators for hexapod robot based on multi-objective genetic algorithm. *International Journal of Advanced Robotic Systems*. https://doi.org/10.1177/17298814211044934
+
+### GA training-data export
+
+The GA script's `main()` saves every distinct individual with fitness strictly
+above `FITNESS_SAVE_THRESHOLD` (set in `GA/GA.py`) to `NN/data/`. This includes
+all generations, from the initial population through the final generation.
+Repeated elite gaits are saved once. Archives are written after all generations
+finish. The script immediately prints the configured threshold and absolute
+destination, then reports each generation's fitness and qualifying count as it
+runs. If no individual exceeds the threshold, it prints that no NN data was
+saved; this is an ordinary outcome, not an error. The configuration experiment
+also explicitly exports each run's qualifying gaits. `run_GA()` itself only
+runs evolution and returns the final population; earlier populations are discarded.
+Its optional `on_generation(generation, fitness, population)` callback collects
+qualifying gaits and mean/worst/best fitness for plotting, and displays live progress.
+
+Each `run_<id>.npz` archive contains `gaits` with shape `(N, 300, 8, 3)` in
+radians, `fitness` and `generation_indices` with shape `(N,)`, and the threshold.
+`GAIT_DATA_DIRECTORY` and `FITNESS_SAVE_THRESHOLD` are defined in `GA/GA.py`.
+No copying of `recent_run.pkl` is needed; that file remains available for rendering.
+
