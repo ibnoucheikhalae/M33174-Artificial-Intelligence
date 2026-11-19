@@ -3,9 +3,9 @@ A Neural Network class from scratch trained using back propagation
 
 Scope
 -----
-Use sigmoid activations in every trainable layer and half-sum squared-error
-loss for one training example. Training will use one parameter update per
-example.
+Use sigmoid activations in every trainable layer and mean squared-error
+loss across the output neurons for one training example. Training uses one
+parameter update per example.
 
 Array and indexing conventions
 ------------------------------
@@ -51,10 +51,11 @@ not z, so storing the weighted inputs z is optional for this exercise.
 2. Loss
 -------
 For one example with target vector t and prediction activations[K]:
-    E = 0.5 * sum((activations[K] - t)**2)
+    m = layer_sizes[K]
+    E = sum((activations[K] - t)**2) / m
 
-This is a half-SUM, not a mean over the output neurons. If you change the
-loss definition, its gradients must change consistently.
+This is the mean over the output neurons, matching ``loss`` and
+``back_propagation``. If the loss changes, its gradients must change consistently.
 
 3. Backward pass: compute gradients
 ----------------------------------
@@ -62,7 +63,7 @@ Define deltas[i] = dE/dz[i+1]. A delta is a per-neuron loss gradient, not
 merely the derivative of sigmoid and not a change in a weight.
 
 Output layer:
-    deltas[K-1] = (activations[K] - t) * activations[K] * (1 - activations[K])
+    deltas[K-1] = (2 / m) * (activations[K] - t) * activations[K] * (1 - activations[K])
 
 Hidden layers, for i = K-2, ..., 0:
     propagated = deltas[i+1] @ weights[i+1].T
@@ -89,6 +90,7 @@ An epoch is one complete pass through the training dataset.
 
 import numpy as np
 
+from collections.abc import Callable
 from typing import Tuple, Optional, List
 from numpy.typing import NDArray
 
@@ -326,7 +328,8 @@ class NeuralNetwork:
             inputs: FloatArray,
             targets: FloatArray,
             epochs: int,
-            learning_rate: float
+            learning_rate: float,
+            on_epoch: Callable[[int, float], None] | None = None,
         ) -> List[float]:
         """
         Method to train the network on a dataset, updating parameters after each example
@@ -336,6 +339,8 @@ class NeuralNetwork:
             targets: Target matrix of shape (number_of_examples, output_size)
             epochs: Nonnegative number of complete passes through the dataset
             learning_rate: Positive, finite step size for each parameter update
+            on_epoch: Optional observer called with the completed epoch (starting at 1)
+                and its mean loss. The caller owns progress reporting.
 
         Returns:
             A list of the average loss per epoch, showing progression over time
@@ -354,7 +359,7 @@ class NeuralNetwork:
             for i, example_input in enumerate(inputs):
                 example_target = targets[i]
 
-                # Do the thing
+                # Cache activations, compute MSE gradients, then update parameters.
                 predictions = self.feed_forward(example_input)
                 self.back_propagation(example_target)
                 self.step(learning_rate)
@@ -362,6 +367,8 @@ class NeuralNetwork:
                 epoch_loss_sum += self.loss(example_target, predictions)
 
             epoch_mean_losses.append(epoch_loss_sum / inputs.shape[0])
+            if on_epoch is not None:
+                on_epoch(epoch + 1, epoch_mean_losses[-1])
 
         return epoch_mean_losses
 
