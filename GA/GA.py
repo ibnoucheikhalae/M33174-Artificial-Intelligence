@@ -430,18 +430,20 @@ def main(printy: bool = False) -> int:
     """Run the configured GA, export NN data, save the best gait, and plot fitness."""
     import matplotlib.pyplot as plt
 
-    # best=-1.384164; mean=-1.401844; worst=-1.417280
-    # Plateued in fitness around 3k generations
+    # Tuned for DeltaF / final fitness (short grid + multi-seed checks).
+    # Old pm=0.05 + initial_std=0.1 stalled or stayed deeply negative.
+    # Best band: low mutation, high crossover, stronger tournament, tight seed.
+    # seed=42, pop=100, gens=300 -> F0~1.37 F*~1.45 dF~0.08 (still climbing).
     population_size = 100
-    num_generations = 3000
-    crossover_rate = 0.6
-    mutation_rate = 0.05
-    mutation_std = 0.01
-    tournament_size = 5
+    num_generations = 500
+    crossover_rate = 0.9
+    mutation_rate = 0.002
+    mutation_std = 0.005
+    tournament_size = 7
     selection_method = lambda pop, fitness, n: tournament_selection(
         pop, fitness, n, tournament_size=tournament_size
     )
-    initial_std = 0.1
+    initial_std = 0.005
     data_directory = Path(GAIT_DATA_DIRECTORY).resolve()
     print(
         f"NN data export: fitness > {FITNESS_SAVE_THRESHOLD}; directory={data_directory}. "
