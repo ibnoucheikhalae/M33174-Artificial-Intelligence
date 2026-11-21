@@ -393,28 +393,52 @@ def run_GA(
 
 
 def plot_fitness_history(fitness: NDArray[np.float64], configuration: str) -> "Axes":
-    """Plot mean fitness and the worst-to-best range for each generation.
+    """Plot mean and best fitness with the worst-to-best range per generation.
 
     Pass recorded (mean, worst, best) fitness per generation, including generation 0,
     and a readable configuration string for the title, for example:
     "Tournament | population=100 | crossover=0.2 | mutation=0.01 | std=0.1".
 
     The shaded band is the population's minimum-to-maximum fitness range,
-    not a confidence interval. Fitness is recorded by the generation callback.
+    not a confidence interval. Best fitness is drawn explicitly so DeltaF
+    (final best minus generation-0 best) is readable from the figure.
+    Fitness is recorded by the generation callback.
     Returns the Matplotlib axes so callers can save the figure or call plt.show().
     """
     import matplotlib.pyplot as plt
     from matplotlib.ticker import MaxNLocator
 
     generation_numbers = np.arange(len(fitness))
+    mean_fitness = fitness[:, 0]
+    worst_fitness = fitness[:, 1]
+    best_fitness = fitness[:, 2]
+    f0 = float(best_fitness[0])
+    f_star = float(best_fitness.max())
+    delta_f = f_star - f0
+    g_star = int(best_fitness.argmax())
+
     _, axes = plt.subplots(layout="constrained")
-    axes.plot(generation_numbers, fitness[:, 0], label="Mean fitness")
     axes.fill_between(
         generation_numbers,
-        fitness[:, 1],
-        fitness[:, 2],
+        worst_fitness,
+        best_fitness,
         alpha=0.2,
-        label="Worst-best fitness",
+        label="Worst–best range",
+    )
+    axes.plot(generation_numbers, mean_fitness, label="Mean fitness", color="C0")
+    axes.plot(
+        generation_numbers,
+        best_fitness,
+        label="Best fitness",
+        color="C1",
+        linewidth=2.0,
+    )
+    axes.scatter(
+        [0, g_star],
+        [f0, f_star],
+        color="C1",
+        zorder=5,
+        label=f"ΔF = {delta_f:.4f}  (F0={f0:.4f} → F*={f_star:.4f})",
     )
     axes.set_title(configuration, wrap=True)
     axes.set_xlabel("Generation (0 = initial population)")
@@ -508,9 +532,20 @@ def main(printy: bool = False) -> int:
     with open("recent_run.pkl", "wb") as file:
         pickle.dump(summ, file, protocol=pickle.HIGHEST_PROTOCOL)
 
+    history = np.asarray(fitness_history)
+    best_curve = history[:, 2]
+    f0 = float(best_curve[0])
+    f_star = float(best_curve.max())
+    delta_f = f_star - f0
+    print(
+        f"DeltaF: F0(best)={f0:.6f}; F*(best)={f_star:.6f}; "
+        f"DeltaF={delta_f:.6f} at generation {int(best_curve.argmax())}",
+        flush=True,
+    )
+
     selection_name = f"Tournament (size={tournament_size})"
     plot_fitness_history(
-        np.asarray(fitness_history),
+        history,
         f"{selection_name} | population={population_size} | generations={num_generations}\n"
         f"crossover={crossover_rate:g} | mutation={mutation_rate:g} | std={mutation_std:g}"
         f" | initial_std={initial_std}",
