@@ -454,12 +454,12 @@ def main(printy: bool = False) -> int:
     """Run the configured GA, export NN data, save the best gait, and plot fitness."""
     import matplotlib.pyplot as plt
 
-    # Tuned for DeltaF / final fitness (short grid + multi-seed checks).
-    # Old pm=0.05 + initial_std=0.1 stalled or stayed deeply negative.
-    # Best band: low mutation, high crossover, stronger tournament, tight seed.
-    # seed=42, pop=100, gens=300 -> F0~1.37 F*~1.45 dF~0.08 (still climbing).
+    # Tuned for DeltaF + final fitness (multi-seed checks).
+    # Low mutation avoids stall; init_std=0.01 gives fair DeltaF headroom.
+    # gens=1000: baseline 500 still climbing; 1000 raised mean dF ~0.27 -> ~0.42
+    # and F* ~1.41 -> ~1.56 (seeds 0,1). Weights in fitness_function.py.
     population_size = 100
-    num_generations = 500
+    num_generations = 1000
     crossover_rate = 0.9
     mutation_rate = 0.002
     mutation_std = 0.005
@@ -467,7 +467,8 @@ def main(printy: bool = False) -> int:
     selection_method = lambda pop, fitness, n: tournament_selection(
         pop, fitness, n, tournament_size=tournament_size
     )
-    initial_std = 0.005
+    initial_std = 0.01
+    pop_seed = 42  # reproducible main() runs; change to None for a fresh random seed
     data_directory = Path(GAIT_DATA_DIRECTORY).resolve()
     print(
         f"NN data export: fitness > {FITNESS_SAVE_THRESHOLD}; directory={data_directory}. "
@@ -508,6 +509,7 @@ def main(printy: bool = False) -> int:
         mutation_rate=mutation_rate,
         mutation_std=mutation_std,
         selection_method=selection_method,
+        pop_seed=pop_seed,
         initial_std=initial_std,
         on_generation=record_generation,
     )
@@ -548,7 +550,7 @@ def main(printy: bool = False) -> int:
         history,
         f"{selection_name} | population={population_size} | generations={num_generations}\n"
         f"crossover={crossover_rate:g} | mutation={mutation_rate:g} | std={mutation_std:g}"
-        f" | initial_std={initial_std}",
+        f" | initial_std={initial_std} | seed={pop_seed}",
     )
     plt.show()
 

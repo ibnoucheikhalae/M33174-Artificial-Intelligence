@@ -180,7 +180,6 @@ class TestStepReward(unittest.TestCase):
         self.assertGreater(f.support_penalty(airborne), 0.5)
         self.assertEqual(f.support_penalty(static_gait(GA.SPREAD)), 0.0)
 
-
 class TestCombinedFitness(unittest.TestCase):
     def test_breakdown_sums_to_fitness(self) -> None:
         gait = GA.sinusoidal_seed_gait()

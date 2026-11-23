@@ -72,8 +72,10 @@ TARGET_HIP_SWING = 0.25  # radians of hip yaw while the foot is in the air
 FULL_MOVEMENT_STD = 0.15
 
 BASE_FITNESS = 1.0
-MOVEMENT_WEIGHT = 0.3
-STEP_WEIGHT = 1.0
+# Slightly less pure-motion credit (avoids paying for twitch); more step credit
+# so tetrapod walking dominates the score and DeltaF climbs on real gait gains.
+MOVEMENT_WEIGHT = 0.2
+STEP_WEIGHT = 1.2
 # Theoretical upper bound: full rewards and zero penalties may not be jointly attainable.
 MAX_FITNESS = BASE_FITNESS + MOVEMENT_WEIGHT + STEP_WEIGHT
 
@@ -85,25 +87,21 @@ MAX_FITNESS = BASE_FITNESS + MOVEMENT_WEIGHT + STEP_WEIGHT
 #                term because it replaces clamping as the constraint.
 #   leg_overlap: RMS gap-normalised crossing. Legs crossing by 5% of their
 #                nominal spacing costs 0.8.
-#   target_pose: Weak pose preference; 5% of range costs 0.05.
-#   acceleration: RMS range-normalised second difference. Second differences
-#                grow with frequency squared. The scale lets a smooth 4-cycle
-#                step cost a modest ~0.2, while mutation spikes remain dear.
-#   symmetry:    RMS range-normalised left/right mirror error; 10% costs 0.3.
-#   couple:      RMS range-normalised thigh/knee error between ipsilateral
-#                pairs (L1-L3, L2-L4, R1-R3, R2-R4). 8% of range costs 0.5.
-#   support:     Mean fraction of a 3-foot shortage per frame. A pose with
-#                fewer than 3 feet down would tip over; 3 down costs 0.
+#   target_pose: Weak keyframe preference (SPREAD/CLOSE/SPREAD); intermediates free.
+#   acceleration: Smooth stepping cheap; mutation spikes dear (realistic motion).
+#   symmetry:    Left/right mirror; eased so seed hip asymmetry is not a ceiling.
+#   couple:      Thigh/knee match for ipsilateral pairs (L1-L3, …).
+#   support:     Shortage below 4 planted feet (tetrapod stance).
 
 # dict -> definition: weight, scale
 PENALTY_WEIGHTS_AND_SCALES = {
     "joint_limit": (1.0, 0.02),
     "leg_overlap": (0.8, 0.05),
-    "target_pose": (0.05, 0.05),
-    "acceleration": (1, 0.01),
-    "symmetry": (0.3, 0.10),
+    "target_pose": (0.05, 0.05),  # kept weak (tests + free intermediate frames)
+    "acceleration": (1.1, 0.01),
+    "symmetry": (0.15, 0.10),
     "couple": (0.5, 0.08),
-    "support": (0.6, 0.25),
+    "support": (0.8, 0.25),
 }
 
 
@@ -224,14 +222,15 @@ def couple_penalty(gait: NDArray[np.float64]) -> float:
 
 
 def support_penalty(gait: NDArray[np.float64]) -> float:
-    """Mean shortage of supporting feet; 0 when every pose has at least 3 down.
+    """Mean shortage of supporting feet; 0 when every pose has at least 4 down.
 
     A foot counts as down if it is within AIRBORNE_CLEARANCE of the standing
-    height. Fewer than 3 planted feet would tip the body over.
+    height. Alternating tetrapod walking keeps one full group of four planted;
+    fewer than 4 down is treated as unstable for this kinematic model.
     """
     _validate_angles(gait, GAIT_SHAPE)
     down = foot_heights(gait) < STANCE_Z + AIRBORNE_CLEARANCE
-    shortage = np.maximum(3 - down.sum(axis=1), 0) / 3.0
+    shortage = np.maximum(4 - down.sum(axis=1), 0) / 4.0
     return float(np.mean(shortage))
 
 
