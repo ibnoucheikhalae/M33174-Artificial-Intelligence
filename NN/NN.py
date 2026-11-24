@@ -416,6 +416,210 @@ class NeuralNetwork:
         """
         return np.average((targets - predictions) ** 2)
 
+
+def create_phase_inputs(num_frames):
+    """Convert frame numbers into phase-based NN inputs."""
+    t = np.linspace(0.0, 1.0, num_frames)
+
+    return np.column_stack([
+        t,
+        np.sin(2 * np.pi * t),
+        np.cos(2 * np.pi * t),
+        np.sin(4 * np.pi * t),
+        np.cos(4 * np.pi * t),
+    ])
+
+
+def train_phase_network(gait_path, model_path, epochs=300):
+    """Train the existing NeuralNetwork on a GA gait."""
+    import pickle
+    from GA.gait_constants import (
+        MIN_JOINT_ANGLES, MAX_JOINT_ANGLES, NUM_FRAMES
+    )
+
+    ga = np.load(gait_path, allow_pickle=False)
+
+    if ga.shape == (1, NUM_FRAMES, 8, 3):
+        ga = ga[0]
+    if ga.shape != (NUM_FRAMES, 8, 3):
+        raise ValueError(f"Invalid GA gait shape: {ga.shape}")
+
+    if (
+        not np.isfinite(ga).all()
+        or (ga < MIN_JOINT_ANGLES).any()
+        or (ga > MAX_JOINT_ANGLES).any()
+    ):
+        raise ValueError("Invalid GA joint angles")
+
+    inputs = create_phase_inputs(NUM_FRAMES)
+    targets = (
+        (ga - MIN_JOINT_ANGLES)
+        / (MAX_JOINT_ANGLES - MIN_JOINT_ANGLES)
+    ).reshape(NUM_FRAMES, 24)
+
+    network = NeuralNetwork(
+        input_size=5,
+        hidden_sizes=(64,),
+        output_size=24,
+        seed=42,
+    )
+
+    # Use the same initialisation as our successful experiment
+    rng = np.random.default_rng(42)
+    for i, weights in enumerate(network.weights):
+        fan_in, fan_out = weights.shape
+        limit = np.sqrt(6 / (fan_in + fan_out))
+        network.weights[i] = rng.uniform(
+            -limit, limit, weights.shape
+        )
+
+    def report(epoch, mse):
+        if epoch == 1 or epoch % 50 == 0 or epoch == epochs:
+            print(f"Epoch {epoch}: MSE={mse:.8f}")
+
+    network.train_nn(
+        inputs,
+        targets,
+        epochs=epochs,
+        learning_rate=0.1,
+        on_epoch=report,
+    )
+
+    # Save the model with its correct phase-based identity
+    saved = {
+        "format": "phase_pose_v1",
+        "layer_sizes": network.layer_sizes,
+        "weights": network.weights,
+        "biases": network.biases,
+        "joint_minimums": MIN_JOINT_ANGLES,
+        "joint_maximums": MAX_JOINT_ANGLES,
+        "num_frames": NUM_FRAMES,
+    }
+
+    model_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with model_path.open("wb") as f:
+        pickle.dump(saved, f)
+
+    print(f"Trained NN saved: {model_path}")
+    return network
+
+
+def load_phase_network(model_path):
+    """Load the previously trained phase-based NN."""
+    import pickle
+    from GA.gait_constants import (
+        MIN_JOINT_ANGLES, MAX_JOINT_ANGLES, NUM_FRAMES
+    )
+
+    # Only load models you created or trust
+    with model_path.open("rb") as f:
+        saved = pickle.load(f)
+
+    sizes = tuple(saved["layer_sizes"])
+
+    if (
+        sizes[0] != 5 or sizes[-1] != 24
+        or saved["num_frames"] != NUM_FRAMES
+        or saved.get("format") not in (
+            "phase_pose_v1", "next_pose_v1"
+        )
+        or not np.array_equal(
+            saved["joint_minimums"], MIN_JOINT_ANGLES
+        )
+        or not np.array_equal(
+            saved["joint_maximums"], MAX_JOINT_ANGLES
+        )
+    ):
+        raise ValueError("Incompatible phase-based NN model")
+
+    network = NeuralNetwork(
+        input_size=5,
+        hidden_sizes=sizes[1:-1],
+        output_size=24,
+        seed=42,
+    )
+
+    for name in ("weights", "biases"):
+        values = [
+            np.asarray(x, dtype=np.float64)
+            for x in saved[name]
+        ]
+        expected = getattr(network, name)
+
+        if len(values) != len(expected) or any(
+            x.shape != y.shape or not np.isfinite(x).all()
+            for x, y in zip(values, expected)
+        ):
+            raise ValueError(f"Invalid model {name}")
+
+        setattr(network, name, [x.copy() for x in values])
+
+    print("Saved phase NN loaded successfully!")
+    return network
+
+
+def generate_phase_gait(network):
+    """Generate a complete spider gait from the trained NN."""
+    from GA.gait_constants import (
+        MIN_JOINT_ANGLES, MAX_JOINT_ANGLES, NUM_FRAMES
+    )
+
+    inputs = create_phase_inputs(NUM_FRAMES)
+
+    predictions = np.asarray([
+        network.feed_forward(x) for x in inputs
+    ])
+
+    if not np.isfinite(predictions).all():
+        raise ValueError("NN produced invalid predictions")
+
+    normalised = predictions.reshape(NUM_FRAMES, 8, 3)
+
+    gait = (
+        MIN_JOINT_ANGLES
+        + normalised
+        * (MAX_JOINT_ANGLES - MIN_JOINT_ANGLES)
+    )
+
+    return gait
+
+
+def run_spider_gait(train=False):
+    """Load/train the NN, generate gait, evaluate and animate."""
+    from pathlib import Path
+    from GA.GA import evaluate_fitness
+    from GA.render_gait import animate_gait
+
+    root = Path(__file__).resolve().parent.parent
+    output = root / "nn_results/phase_experiment"
+    model_path = output / "phase_model.pkl"
+    gait_path = root / "ga_training_check.npy"
+
+    if train:
+        network = train_phase_network(
+            gait_path, model_path, epochs=300
+        )
+    else:
+        network = load_phase_network(model_path)
+
+    gait = generate_phase_gait(network)
+
+    output.mkdir(parents=True, exist_ok=True)
+    np.save(output / "generated_gaits.npy", gait[None])
+
+    fitness = float(evaluate_fitness(gait[None])[0])
+    movement = float(
+        np.ptp(gait[-50:], axis=0).mean()
+    )
+
+    print("\n--- NN RESULTS ---")
+    print(f"Fitness: {fitness:.8f}")
+    print(f"Last 50 frames movement: {movement:.8f}")
+    print(f"Generated gait saved in: {output}")
+
+    animate_gait(gait)
+
 def main() -> int:
     # Doing flower dataset as test
 
@@ -505,4 +709,9 @@ def main() -> int:
     return 0
 
 if __name__ == "__main__":
-    main()
+    import sys
+
+    if "--iris" in sys.argv:
+        main()
+    else:
+        run_spider_gait(train="--train" in sys.argv)
