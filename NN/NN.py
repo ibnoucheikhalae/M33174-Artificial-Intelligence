@@ -418,7 +418,16 @@ class NeuralNetwork:
 
 
 def create_phase_inputs(num_frames):
-    """Convert frame numbers into phase-based NN inputs."""
+    """Describe time using t and the first two sine/cosine harmonic pairs.
+
+    These are input features, not mathematical target poses: the GA supplies
+    every target joint angle. Paired sine/cosine values describe cycle position;
+    raw t retains elapsed progress. One and two cycles are our compact starting
+    choice, not a validated optimum. See Tancik et al. (2020),
+    https://arxiv.org/abs/2006.10739, for Fourier-feature coordinate regression.
+    Related Time2Vec learns its periodic parameters; ours are fixed:
+    Kazemi et al. (2019), https://arxiv.org/abs/1907.05321.
+    """
     t = np.linspace(0.0, 1.0, num_frames)
 
     return np.column_stack([
@@ -431,7 +440,14 @@ def create_phase_inputs(num_frames):
 
 
 def train_phase_network(gait_path, model_path, epochs=300):
-    """Train the existing NeuralNetwork on a GA gait."""
+    """Train the existing NeuralNetwork on one GA gait and save its weights.
+
+    The original API takes a .npy path and keeps the experiment's fixed settings:
+    5 -> 64 -> 24, learning rate 0.1, seed 42 and the requested epoch count.
+    Targets are actual same-frame GA angles. Scaling changes their units for
+    sigmoid and bounds the output domain; it does not prescribe a pose.
+    The returned epoch losses are plotted beside the saved model.
+    """
     import pickle
     from GA.gait_constants import (
         MIN_JOINT_ANGLES, MAX_JOINT_ANGLES, NUM_FRAMES
@@ -477,7 +493,7 @@ def train_phase_network(gait_path, model_path, epochs=300):
         if epoch == 1 or epoch % 50 == 0 or epoch == epochs:
             print(f"Epoch {epoch}: MSE={mse:.8f}")
 
-    network.train_nn(
+    losses = network.train_nn(
         inputs,
         targets,
         epochs=epochs,
@@ -501,12 +517,27 @@ def train_phase_network(gait_path, model_path, epochs=300):
     with model_path.open("wb") as f:
         pickle.dump(saved, f)
 
+    # The coursework asks for a training-loss plot; reuse train_nn's recorded losses.
+    import matplotlib.pyplot as plt
+
+    figure, axis = plt.subplots()
+    axis.plot(range(1, len(losses) + 1), losses)
+    axis.set(xlabel="Epoch", ylabel="Mean squared error (scaled angles)")
+    figure.tight_layout()
+    figure.savefig(model_path.parent / "training_loss.png")
+    plt.close(figure)
+
     print(f"Trained NN saved: {model_path}")
     return network
 
 
 def load_phase_network(model_path):
-    """Load the previously trained phase-based NN."""
+    """Load a trusted phase model using the original compatibility checks.
+
+    The original branch also accepted five-input files labelled next_pose_v1;
+    this compatibility is retained. A 25-input recursive model fails the existing
+    architecture check. Pickle can execute code: load only trusted files.
+    """
     import pickle
     from GA.gait_constants import (
         MIN_JOINT_ANGLES, MAX_JOINT_ANGLES, NUM_FRAMES
@@ -560,7 +591,13 @@ def load_phase_network(model_path):
 
 
 def generate_phase_gait(network):
-    """Generate a complete spider gait from the trained NN."""
+    """Predict every frame independently from time, returning radians (300, 8, 3).
+
+    Frame zero is also predicted. No starting pose or previous prediction is an
+    input, so pose errors cannot propagate through feedback. The same model
+    always produces one trajectory; it cannot adapt to disturbances. Sigmoid
+    and inverse scaling constrain angles to the configured GA joint range.
+    """
     from GA.gait_constants import (
         MIN_JOINT_ANGLES, MAX_JOINT_ANGLES, NUM_FRAMES
     )
@@ -586,7 +623,12 @@ def generate_phase_gait(network):
 
 
 def run_spider_gait(train=False):
-    """Load/train the NN, generate gait, evaluate and animate."""
+    """Original single-gait workflow: train/load, generate, score and animate.
+
+    Uses ga_training_check.npy and nn_results/phase_experiment/phase_model.pkl.
+    Run python -m NN.NN --train to train; omit --train to use saved weights.
+    Training also saves training_loss.png beside the model.
+    """
     from pathlib import Path
     from GA.GA import evaluate_fitness
     from GA.render_gait import animate_gait

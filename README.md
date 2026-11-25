@@ -1,20 +1,25 @@
-# GA pt1
+# Evolving a walking gait for an eight-legged robot with a genetic algorithm
+
+<!-- TODO: module code, group number, member names and student numbers. -->
+
+This project uses a genetic algorithm (GA) to evolve a 300-frame walking gait for an eight-legged spider robot. Each leg has three joints, so every frame is a pose of 24 joint angles.
+
+This README explains each design choice and why we made it, with citations. Comments in the code describe what each part does; the reasons for the design are given here.
 
 ## Contents
 
 1. [How to run](#1-how-to-run)
-2. [Intro](#2-intro)
-3. [Encoding](#3-encoding)
-4. [GA Approach](#4-ga-approach)
-   - [Fitness function](#fitness-function)
-   - [Mutation and crossover](#mutation-and-crossover)
-   - [Generation 0](#generation-0)
-   - [Parameters](#parameters)
-5. [What we had](#5-what-we-had)
-6. [What the runs show](#6-what-the-runs-show)
-7. [References](#7-references)
-
-
+2. [Encoding](#2-encoding)
+3. [Constraint handling](#3-constraint-handling)
+4. [Initial population](#4-initial-population)
+5. [Fitness function](#5-fitness-function)
+6. [Selection](#6-selection)
+7. [Crossover](#7-crossover)
+8. [Mutation](#8-mutation)
+9. [Parameters and experiment design](#9-parameters-and-experiment-design)
+10. [Results](#10-results)
+11. [Alternatives we considered and rejected](#11-alternatives-we-considered-and-rejected)
+12. [References](#12-references)
 
 ## 1. How to run
 
@@ -30,36 +35,144 @@ python -m GA.try_all_ga_configs                 # parameter grid
 
 | File | Role |
 | --- | --- |
-| `GA/gait_constants.py` | Joint limits, SPREAD/CLOSE, keyframes, couples (shared by GA and fitness) |
-| `GA/GA.py` | Seeding, operators, `run_GA`, export of qualifying gaits |
-| `GA/fitness_function.py` | Rewards, penalties, combined fitness |
-| `GA/kinematics.py` | Body/leg geometry and forward kinematics (from the supplied MATLAB; same robot as the plot) |
-| `GA/plot_spider_pose.py` | One 3D pose (from the supplied MATLAB) |
-| `GA/render_gait.py` | Animate a saved gait |
-| `GA/try_all_ga_configs.py` | Experiment script: tries combinations of selection, crossover rate, mutation rate and step size |
+| `GA/GA.py` | Encoding constants, task keyframe poses, seeding, selection, crossover, mutation, the training loop |
+| `GA/fitness_function.py` | All penalties and rewards, and the combined fitness |
+| `GA/kinematics.py` | Shared body/leg geometry and forward kinematics (plot + overlap/step scoring) |
+| `GA/try_all_ga_configs.py` | Grid experiment over selection method, crossover rate, mutation rate and step size |
+| `GA/plot_spider_pose.py` | 3D pose renderer (uses `kinematics.py`) |
+| `GA/render_gait.py` | Animates a saved gait, interactively or to a file |
+| `test/` | Unit tests for the operators and every fitness term |
 
-## 2. Intro
+### Run a GA
+- Edit the control varables in the main function of GA.py to the desired value.
+- Run `python -m GA.GA` to run the genetic algorithm with these control variables.
+  - This will save the gait with the best fitness from the last generation to `recent_run.pkl`
 
-This README is the method write-up: what we tried first, what we ruled out, what that first GA actually did, and what we have now. Doc strings in the source describe *how* a function works.
+### Render a gait
+Any saved gait can be rendered using the rendering script.
+Just run `python -m GA.render_gait path/to/saved/gait.pkl`
 
-## 3. Encoding
+For example, if you want to render the saved gait from the last GA.py run, just run `python -m GA.render_gait recent_run.pkl`
 
-The brief asks for a **gait**, so smoothness and stepping only make sense across many frames. One individual is therefore the whole 300-frame sequence, not a single pose.
+### Run the experiment script
+For testing, we used a script called `./GA/try_all_ga_configs.py` to experiment with different permutations of the control variables ("all GA configs").
+If you would like to run this yourself, just run `python -m GA.try_all_ga_configs`
 
+### Train the next-pose neural network
 
-| Term       | Here                               | Size                 |
-| ---------- | ---------------------------------- | -------------------- |
-| Allele     | One joint angle, radians           | 1 number             |
-| Gene       | That joint at one frame            | 1                    |
-| Leg        | Coxa, femur, tibia at one frame    | 3                    |
-| Frame      | All eight legs                     | 24                   |
-| Chromosome | The full gait the operators act on | 300 \times 24 = 7200 |
-| Individual | One chromosome plus its fitness    | 1                    |
+The GA script's `main()` saves every distinct individual with fitness strictly
+above `FITNESS_SAVE_THRESHOLD` (set in `GA/GA.py`) to `NN/data/`. This includes
+all generations, from the initial population through the final generation.
+Repeated elite gaits are saved once. Archives are written after all generations
+finish. The script immediately prints the configured threshold and absolute
+destination, then reports each generation's fitness and qualifying count as it
+runs. If no individual exceeds the threshold, it prints that no NN data was
+saved; this is an ordinary outcome, not an error. The configuration experiment
+also explicitly exports each run's qualifying gaits. `run_GA()` itself only
+runs evolution and returns the history; library callers choose whether to export.
+Its optional `on_generation` callback lets a caller collect fitness and display
+live progress without putting logging or file handling inside the algorithm.
 
+Each `run_<id>.npz` archive contains `gaits` with shape `(N, 300, 8, 3)` in
+radians, `fitness` and `generation_indices` with shape `(N,)`, and the threshold.
+`GAIT_DATA_DIRECTORY` and `FITNESS_SAVE_THRESHOLD` are defined in `GA/GA.py`.
+No copying of `recent_run.pkl` is needed; that file remains available for rendering.
 
-Layout: `chromosome[frame][leg][joint]`, shape `(300, 8, 3)`, `float64`. One frame is the brief’s 1×24 pose (`[L1a, L1b, L1c, …, R1c]`), stacked over ~300 frames for a gait. Leg order matches the brief/MATLAB model: L1, L2, L3, L4, R4, R3, R2, R1. Joints are innermost → outermost: **coxa** (swings the leg around the body), **femur** (raises the upper leg), **tibia** (bends the lower leg). Angles are radians. (In code comments these are often called hip / thigh / knee — same three joints.)
+Run the GA independently several times, then train the network from the
+repository root with the environment activated:
 
-**Why the whole gait.** A pose-only GA cannot score stepping or the standing photos as a cycle. Manglik, Gupta and Bhanot (2016) encode a sequence of steps, each holding every leg’s three angles; we take that to eight legs and 300 frames.
+```bash
+python -m GA.GA
+# Repeat GA runs to collect at least two independent runs with distinct gaits.
+python -m NN.nn_template --output-dir nn_results --epochs 100
+```
+
+Training prints the training/test gait counts and number of transitions per
+epoch before starting, then reports `Epoch 1/100: training MSE=...` after each
+completed epoch. MSE is averaged over the scaled joint angles and training
+examples as they are processed. An epoch visits every training transition, so
+larger datasets take longer before the first epoch report appears. Progress
+printing belongs to `main()`; library callers can supply an `on_epoch`
+callback to `train_network()` or `NeuralNetwork.train_nn()`.
+
+The NN reads `NN/data/` by default; an optional positional directory overrides
+it. It removes exact duplicates across archives and shuffles/splits complete
+runs 80:20. All remaining individuals from a run stay in one split, so the
+proportions of individual gaits can differ from 80:20. Use substantially more
+than two independent runs for meaningful evaluation. Runs sharing an initial
+population or random seed should not be treated as independent experiments.
+
+The default network is **25 → 40 → 24**. Inputs are 24 current joint angles,
+followed by the current frame divided by 299; targets are the next 24 angles.
+Each 300-frame gait supplies 299 transitions. Sigmoid outputs are between zero
+and one, so the network uses the reversible scale
+`(angle - joint_minimum) / (joint_maximum - joint_minimum)`. Stored and generated
+angles stay in radians. Out-of-range training angles are rejected when loaded,
+rather than silently clipped or repeatedly checked by each processing function.
+If the physical limits change, update the GA limits and retrain.
+
+The script reports next-pose error and generates complete held-out sequences by
+feeding each prediction back in, starting from the reference's first pose.
+It compares against a baseline that keeps the current pose: for single-step
+prediction it copies each actual input pose; for complete-sequence generation it
+holds the starting pose for all 300 frames. GA fitness, angle errors, and motion
+metrics assess quality; joint-limit compliance alone does not demonstrate walking.
+Reserve validation runs from the training portion before tuning; do not tune on
+the test results. A different seed pose does not guarantee novel, effective motion.
+
+Results are saved in `nn_results/`:
+
+- `model.pkl`: trained parameters and preprocessing metadata.
+- `training_loss.png`: mean training squared error by epoch.
+- `metrics.json`: next-pose errors, baselines, per-gait metrics, and source archive names.
+- `generated_gaits.npy`: generated radians, shape `(test_gaits, 300, 8, 3)`.
+
+To animate the best generated gait, run:
+
+```bash
+python -m GA.render_gait nn_results/generated_gaits.npy
+```
+
+The renderer scores every gait using the current GA fitness function and opens
+the highest-scoring gait in a Matplotlib window at 30 frames per second. It
+prints the selected gait's zero-based index and fitness. That index also selects
+its entry in `metrics.json` under `rollouts` and `testing_sources`. If you change
+the fitness function after training, the newly computed scores may differ from
+the recorded metrics. Close the window to stop playback. This command also
+accepts `recent_run.pkl` for the existing GA summary workflow.
+
+Use `--help` for learning-rate, hidden-layer, and random-seed options. To generate
+from another legal starting pose in Python:
+
+```python
+from pathlib import Path
+from GA.GA import SPREAD
+from NN.nn_template import generate_gait, load_model
+
+network = load_model(Path("nn_results/model.pkl"))
+gait = generate_gait(network, SPREAD)  # (300, 8, 3), radians
+```
+
+Only load trusted pickle model files. The training archives use NumPy's array
+format with pickle disabled. Old manual gait-summary files are not NN inputs.
+
+## 2. Encoding
+
+An individual is a complete gait, not a single pose. The encoding, from smallest to largest:
+
+| Term | In this project | Size |
+| --- | --- | --- |
+| Allele | The value a gene holds: one angle in radians. | one number |
+| Gene | One joint's angle at one frame. | 1 |
+| Leg | The three genes for one leg's joints at one frame. | 3 genes |
+| Frame (pose) | All eight legs at one moment. | 8 × 3 = 24 genes |
+| Chromosome | Every frame in sequence: the full encoded solution the operators act on. | 300 × 24 = 7,200 genes |
+| Individual | One member of the population: one chromosome and its fitness. | 1 chromosome |
+| Gait | What the chromosome decodes to: the 300-frame motion that is rendered and scored. | 300 poses |
+
+The array layout is `chromosome[frame][leg][joint]` with shape `(300, 8, 3)` and dtype `float64`. Legs are stored in the renderer's order L1, L2, L3, L4, R4, R3, R2, R1; joints are hip (yaw), thigh (pitch), knee (pitch); all angles are radians.
+
+**Why the whole gait.** The task is to find the best walking gait over 300 frames. A gait can only be judged as a sequence, because smoothness and rhythm depend on how poses follow one another. A GA that optimised a single pose could not evaluate either.
 
 **Why real-valued.** Joint angles are continuous (Heinen and Osório, 2006a; Vice, Sukthankar and Douglas, 2022; Oliveira et al., 2011).
 
@@ -197,4 +310,25 @@ Raheem, F. A. and Khaleel, H. Z. (2015). Hexapod robot static stability enhancem
 
 Vice, J., Sukthankar, G. and Douglas, P. K. (2022). Leveraging evolutionary algorithms for feasible hexapod locomotion across uneven terrain. In: *Proceedings of the 35th International FLAIRS Conference*. [https://doi.org/10.48550/arXiv.2203.15948](https://doi.org/10.48550/arXiv.2203.15948)
 
-Wang, B., Cui, X., Sun, J., and Gao, Y. (2021). Parameters optimization of central pattern generators for hexapod robot based on multi-objective genetic algorithm. *International Journal of Advanced Robotic Systems*. [https://doi.org/10.1177/17298814211044934](https://doi.org/10.1177/17298814211044934)
+Wang, B., Cui, X., Sun, J. and Gao, Y. (2021). Parameters optimization of central pattern generators for hexapod robot based on multi-objective genetic algorithm. *International Journal of Advanced Robotic Systems*. https://doi.org/10.1177/17298814211044934
+
+### GA training-data export
+
+The GA script's `main()` saves every distinct individual with fitness strictly
+above `FITNESS_SAVE_THRESHOLD` (set in `GA/GA.py`) to `NN/data/`. This includes
+all generations, from the initial population through the final generation.
+Repeated elite gaits are saved once. Archives are written after all generations
+finish. The script immediately prints the configured threshold and absolute
+destination, then reports each generation's fitness and qualifying count as it
+runs. If no individual exceeds the threshold, it prints that no NN data was
+saved; this is an ordinary outcome, not an error. The configuration experiment
+also explicitly exports each run's qualifying gaits. `run_GA()` itself only
+runs evolution and returns the final population; earlier populations are discarded.
+Its optional `on_generation(generation, fitness, population)` callback collects
+qualifying gaits and mean/worst/best fitness for plotting, and displays live progress.
+
+Each `run_<id>.npz` archive contains `gaits` with shape `(N, 300, 8, 3)` in
+radians, `fitness` and `generation_indices` with shape `(N,)`, and the threshold.
+`GAIT_DATA_DIRECTORY` and `FITNESS_SAVE_THRESHOLD` are defined in `GA/GA.py`.
+No copying of `recent_run.pkl` is needed; that file remains available for rendering.
+

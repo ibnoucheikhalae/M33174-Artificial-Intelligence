@@ -9,13 +9,11 @@ NumPy files contain radians with shape (N, 300, 8, 3), or a single gait with
 shape (300, 8, 3). GA summary pickles supply the same data under best_gait;
 only load trusted pickle files. Fitness is recomputed using the current GA
 fitness function. The printed zero-based index identifies the chosen gait
-within the file (and the matching rollout in the NN's metrics.json).
+within the file. The phase NN exports one gait, at index zero.
 """
 
 import argparse
-import argparse
 import pickle
-import sys
 from collections.abc import Sequence
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -24,7 +22,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.animation import FuncAnimation
 from numpy.typing import NDArray
-
 
 from GA.GA import NUM_FRAMES, NUM_LEG_SEGS, NUM_LEGS, evaluate_fitness
 from GA.plot_spider_pose import plot_spider_pose
@@ -89,6 +86,4 @@ def main(argv: Sequence[str] | None = None) -> None:
 
 
 if __name__ == "__main__":
-    main()
-
     main()
