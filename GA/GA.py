@@ -32,7 +32,8 @@ from GA.kinematics import NUM_LEG_SEGS, NUM_LEGS, SOCKET_HEADINGS
 
 # Fitness is at most MAX_FITNESS, 0.9 saves only those who get 90% of MAX_FITNESS;
 # save distinct individuals strictly above this threshold.
-FITNESS_SAVE_THRESHOLD = MAX_FITNESS * 0.762
+# FITNESS_SAVE_THRESHOLD = MAX_FITNESS * 0.673
+FITNESS_SAVE_THRESHOLD = 1.553
 GAIT_DATA_DIRECTORY = Path(__file__).resolve().parents[1] / "NN" / "data"
 NUM_STEPS = 1  # Complete spread-close-spread cycles and knee lifts in a seed gait.
 

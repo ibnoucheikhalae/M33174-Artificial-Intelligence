@@ -57,8 +57,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 from numpy.typing import NDArray
 
-from GA.GA import evaluate_fitness
-from GA.gait_constants import MAX_JOINT_ANGLES, MIN_JOINT_ANGLES
+from GA.GA import GAIT_DATA_DIRECTORY, evaluate_fitness
+from GA.gait_constants import MAX_JOINT_ANGLES, MIN_JOINT_ANGLES, NUM_FRAMES
+from GA.kinematics import NUM_LEG_SEGS, NUM_LEGS
 from NN.NN import NeuralNetwork
 
 FloatArray = NDArray[np.float64]

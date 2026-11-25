@@ -10,7 +10,7 @@ from pathlib import Path
 
 import numpy as np
 
-from GA.GA import MAX_JOINT_ANGLES, MIN_JOINT_ANGLES
+from GA.gait_constants import MAX_JOINT_ANGLES, MIN_JOINT_ANGLES
 from NN import nn_template as nn
 from NN.NN import NeuralNetwork
 
