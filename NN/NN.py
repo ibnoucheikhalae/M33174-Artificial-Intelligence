@@ -439,49 +439,50 @@ def create_phase_inputs(num_frames):
     ])
 
 
-def train_phase_network(gait_path, model_path, epochs=300):
-    """Train the existing NeuralNetwork on one GA gait and save its weights.
+def train_network(gait_path, model_path, epochs=100):
+    """Train on GA run archives in a directory, or one legacy .npy gait.
 
-    The original API takes a .npy path and keeps the experiment's fixed settings:
+    Keep the experiment's fixed settings:
     5 -> 64 -> 24, learning rate 0.1, seed 42 and the requested epoch count.
     Targets are actual same-frame GA angles. Scaling changes their units for
     sigmoid and bounds the output domain; it does not prescribe a pose.
     The returned epoch losses are plotted beside the saved model.
     """
     import pickle
+    from pathlib import Path
     from GA.gait_constants import (
         MIN_JOINT_ANGLES, MAX_JOINT_ANGLES, NUM_FRAMES
     )
 
-    ga = np.load(gait_path, allow_pickle=False)
+    # Load gaits stored in `gait_path` and configure them to the right shape for training
+    gait_path = Path(gait_path)
+    if not gait_path.is_dir():
+        raise ValueError(f"Invalid gait path: {str(gait_path)} should be a directory containing training gaits.")
+    archives = sorted(gait_path.glob("run_*.npz"))
+    if not archives:
+        raise ValueError(f"No GA run_*.npz archives found in {gait_path}")
+    batches = []
+    for archive in archives:
+        with np.load(archive, allow_pickle=False) as run:
+            gaits = run["gaits"]
+            if gaits.ndim != 4 or gaits.shape[1:] != (NUM_FRAMES, 8, 3):
+                raise ValueError(f"Invalid GA gait shape: {gaits.shape}")
+            batches.append(gaits)
+    ga = np.concatenate(batches)
 
-    if ga.shape == (1, NUM_FRAMES, 8, 3):
-        ga = ga[0]
-    if ga.shape != (NUM_FRAMES, 8, 3):
-        raise ValueError(f"Invalid GA gait shape: {ga.shape}")
-
-    if (
-        not np.isfinite(ga).all()
-        or (ga < MIN_JOINT_ANGLES).any()
-        or (ga > MAX_JOINT_ANGLES).any()
-    ):
-        raise ValueError("Invalid GA joint angles")
-
-    inputs = create_phase_inputs(NUM_FRAMES)
+    inputs = np.tile(create_phase_inputs(NUM_FRAMES), (len(ga), 1))
     targets = (
         (ga - MIN_JOINT_ANGLES)
         / (MAX_JOINT_ANGLES - MIN_JOINT_ANGLES)
-    ).reshape(NUM_FRAMES, 24)
+    ).reshape(-1, 24)
 
     network = NeuralNetwork(
         input_size=5,
         hidden_sizes=(64,),
         output_size=24,
-        seed=42,
     )
 
-    # Use the same initialisation as our successful experiment
-    rng = np.random.default_rng(42)
+    rng = np.random.default_rng()
     for i, weights in enumerate(network.weights):
         fan_in, fan_out = weights.shape
         limit = np.sqrt(6 / (fan_in + fan_out))
@@ -490,8 +491,7 @@ def train_phase_network(gait_path, model_path, epochs=300):
         )
 
     def report(epoch, mse):
-        if epoch == 1 or epoch % 50 == 0 or epoch == epochs:
-            print(f"Epoch {epoch}: MSE={mse:.8f}")
+        print(f"Epoch {epoch}: MSE={mse:.8f}", flush=True)
 
     losses = network.train_nn(
         inputs,
@@ -531,7 +531,7 @@ def train_phase_network(gait_path, model_path, epochs=300):
     return network
 
 
-def load_phase_network(model_path):
+def load_network(model_path):
     """Load a trusted phase model using the original compatibility checks.
 
     The original branch also accepted five-input files labelled next_pose_v1;
@@ -622,138 +622,41 @@ def generate_phase_gait(network):
     return gait
 
 
-def run_spider_gait(train=False):
-    """Original single-gait workflow: train/load, generate, score and animate.
+def main(train=False) -> int:
+    """Train from NN/data, or load the model and save and score one gait.
 
-    Uses ga_training_check.npy and nn_results/phase_experiment/phase_model.pkl.
-    Run python -m NN.NN --train to train; omit --train to use saved weights.
-    Training also saves training_loss.png beside the model.
+    Run python -m NN.NN --train to save NN/output/model.pkl and training_loss.png.
+    Omit --train to generate NN/output/generated_gait.npy from the saved model.
+    Use python -m GA.render_gait on that file to animate it separately.
     """
     from pathlib import Path
     from GA.GA import evaluate_fitness
-    from GA.render_gait import animate_gait
 
     root = Path(__file__).resolve().parent.parent
-    output = root / "nn_results/phase_experiment"
-    model_path = output / "phase_model.pkl"
-    gait_path = root / "ga_training_check.npy"
+    output = root / "NN/output/"
+    model_path = output / "model.pkl"
+    gait_path = root / "NN/data/"
 
     if train:
-        network = train_phase_network(
-            gait_path, model_path, epochs=300
-        )
-    else:
-        network = load_phase_network(model_path)
+        train_network(gait_path, model_path, epochs=100)
+        return 0
+
+    network = load_network(model_path)
 
     gait = generate_phase_gait(network)
 
     output.mkdir(parents=True, exist_ok=True)
-    np.save(output / "generated_gaits.npy", gait[None])
+    np.save(output / "generated_gait.npy", gait[None])
 
     fitness = float(evaluate_fitness(gait[None])[0])
-    movement = float(
-        np.ptp(gait[-50:], axis=0).mean()
-    )
+    movement = float(np.ptp(gait[-50:], axis=0).mean())
 
     print("\n--- NN RESULTS ---")
     print(f"Fitness: {fitness:.8f}")
     print(f"Last 50 frames movement: {movement:.8f}")
     print(f"Generated gait saved in: {output}")
-
-    animate_gait(gait)
-
-def main() -> int:
-    # Doing flower dataset as test
-
-    def _class_by_prediction(prediction: FloatArray) -> str:
-        indx = np.argmin(prediction)
-        match indx:
-            case 0:
-                return "Iris-setosa"
-            case 1:
-                return "Iris-versicolor"
-            case 2:
-                return "Iris-virginica"
-
-    # 1. Load dataset
-    species_by_encoding = {
-        "Iris-setosa": [1, 0, 0],
-        "Iris-versicolor": [0, 1, 0],
-        "Iris-virginica": [0, 0, 1]
-    }
-    training_data = []
-    training_targets = []
-    testing_data = []
-    testing_targets = []
-
-    proportion_training = 0.8
-
-    import csv
-    import random
-    with open ("iris.csv") as file:
-        reader = csv.reader(file)
-        for i, row in enumerate(reader):
-            if i == 0: continue  # Skip header row
-            if random.random() < proportion_training:
-                training_data.append(row[1:-1])
-                training_targets.append(species_by_encoding[row[-1]])
-            else:
-                testing_data.append(row[:-1])  # Include ID in testing data for print display
-                testing_targets.append(species_by_encoding[row[-1]])
-
-    training_data    = np.asarray(training_data, dtype=np.float64)
-    training_targets = np.asarray(training_targets, dtype=np.float64)
-    testing_data     = np.asarray(testing_data, dtype=np.float64)
-    testing_targets  = np.asarray(testing_targets, dtype=np.float64)
-
-    # 2. Define NN architecture
-    my_nn = NeuralNetwork(
-        input_size=4,
-        hidden_sizes=(6,),  # ~= (2/3 * input) + output  | > 2 * input
-        output_size=3
-    )
-
-    # 3. Train the network
-    print("Training network...")
-    average_loss_per_epoch = my_nn.train_nn(
-        inputs=training_data,
-        targets=training_targets,
-        epochs=150,
-        learning_rate=0.1
-    )
-
-    print(f"Average loss per epoch: {average_loss_per_epoch}")
-
-    # 3. Test using unseen examples
-    print("\nTesting network...")
-    error_sum = 0
-    num_wrong = 0
-    for i, test in enumerate(testing_data):
-        prediction = my_nn.feed_forward(test[1:])
-        error = my_nn.loss(targets=testing_targets[i], predictions=prediction)
-        error_sum += error
-
-        predicted_class = _class_by_prediction(prediction)
-        real_class = _class_by_prediction(testing_targets[i])
-        if is_wrong := predicted_class != real_class: num_wrong += 1
-        print(
-            f"Testing ID-{test[0]}: prediction = {prediction}; predicted_class = {predicted_class}"
-            f"{f'; real_class = {real_class}' if is_wrong else ''}"
-        )
-
-    average_error = error_sum / len(testing_data)
-    print(
-        f"Average error on tests: {average_error}; "
-        f"Accuracy %: {100 - (num_wrong / len(testing_data) * 100)}%"
-    )
-
-
     return 0
 
 if __name__ == "__main__":
     import sys
-
-    if "--iris" in sys.argv:
-        main()
-    else:
-        run_spider_gait(train="--train" in sys.argv)
+    sys.exit(main(train="--train" in sys.argv))
