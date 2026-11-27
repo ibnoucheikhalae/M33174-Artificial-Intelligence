@@ -456,14 +456,14 @@ def create_phase_inputs(num_frames):
     ])
 
 
-def train_network(gait_path, model_path, epochs=100):
+def train_network(gait_path, model_path, epochs=5):
     """Train on GA run archives in a directory.
 
     Keep the experiment's fixed settings:
     5 -> 64 -> 24, learning rate 0.1 and the requested epoch count.
     Targets and linear outputs are actual same-frame angles in radians.
     No joint-limit scaling or clipping constrains the network's output.
-    The returned epoch losses are plotted beside the saved model.
+    Dataset MSE before training and after each epoch is plotted beside the model.
     """
     import pickle
     from pathlib import Path
@@ -507,10 +507,22 @@ def train_network(gait_path, model_path, epochs=100):
             -limit, limit, weights.shape
         )
 
-    def report(epoch, mse):
+    def measure_loss():
+        # All gaits share phase inputs: predict 300 poses once per fixed-weight snapshot.
+        predictions = np.array([network.feed_forward(x) for x in inputs[:NUM_FRAMES]])
+        return float(sum(
+            np.sum((predictions - gait.reshape(NUM_FRAMES, 24)) ** 2) for gait in ga
+        ) / targets.size)
+
+    losses = []
+
+    def report(epoch, _online_mse):
+        mse = measure_loss()
+        losses.append(mse)
         print(f"Epoch {epoch}: MSE={mse:.8f}", flush=True)
 
-    losses = network.train_nn(
+    report(0, None)
+    network.train_nn(
         inputs,
         targets,
         epochs=epochs,
@@ -532,12 +544,12 @@ def train_network(gait_path, model_path, epochs=100):
     with model_path.open("wb") as f:
         pickle.dump(saved, f)
 
-    # The coursework asks for a training-loss plot; reuse train_nn's recorded losses.
+    # Plot comparable dataset losses before training and after each complete epoch.
     import matplotlib.pyplot as plt
 
     figure, axis = plt.subplots()
-    axis.plot(range(1, len(losses) + 1), losses)
-    axis.set(xlabel="Epoch", ylabel="Mean squared error (radians squared)")
+    axis.plot(range(len(losses)), losses, marker="o")
+    axis.set(xlabel="Epoch", ylabel="Mean squared error (radians squared)", yscale="log")
     figure.tight_layout()
     figure.savefig(model_path.parent / "training_loss.png")
     plt.close(figure)
@@ -631,7 +643,7 @@ def main(train=False) -> int:
     gait_path = root / "NN/data/"
 
     if train:
-        train_network(gait_path, model_path, epochs=100)
+        train_network(gait_path, model_path, epochs=2)
         return 0
 
     network = load_network(model_path)

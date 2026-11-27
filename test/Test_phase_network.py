@@ -136,6 +136,42 @@ class TestPhaseNetwork(unittest.TestCase):
                 sorted(block.tobytes() for block in expected),
             )
 
+    def test_loss_plot_includes_untrained_and_completed_epoch_losses(self):
+        """Every plotted point uses fixed weights, including a zero-epoch run."""
+        from matplotlib.figure import Figure
+
+        original_train = NeuralNetwork.train_nn
+        original_save = Figure.savefig
+        initial_losses, plotted = [], []
+
+        def observe_training(network, inputs, targets, **kwargs):
+            predictions = np.array([network.feed_forward(x) for x in inputs])
+            initial_losses.append(np.mean((predictions - targets) ** 2))
+            return original_train(network, inputs, targets, **kwargs)
+
+        def observe_plot(figure, *args, **kwargs):
+            line = figure.axes[0].lines[0]
+            plotted.append((line.get_xdata().copy(), line.get_ydata().copy()))
+            return original_save(figure, *args, **kwargs)
+
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory)
+            gaits = np.zeros((2, 300, 8, 3))
+            gaits[1] = 0.25
+            np.savez(folder / "run_test.npz", gaits=gaits)
+            for epochs in (0, 1):
+                with (
+                    patch.object(NeuralNetwork, "train_nn", observe_training),
+                    patch.object(Figure, "savefig", observe_plot),
+                    redirect_stdout(io.StringIO()),
+                ):
+                    network = train_network(folder, folder / "model.pkl", epochs=epochs)
+                xs, ys = plotted[-1]
+                np.testing.assert_array_equal(xs, np.arange(epochs + 1))
+                self.assertAlmostEqual(ys[0], initial_losses[-1])
+                final_loss = np.mean((generate_phase_gait(network) - gaits) ** 2)
+                self.assertAlmostEqual(ys[-1], final_loss)
+
     def test_load_phase_network(self):
         """Preserve the original compatibility checks for saved models."""
         network = NeuralNetwork(5, (), 24, seed=1, output_activation="linear")
