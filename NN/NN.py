@@ -3,7 +3,7 @@ A Neural Network class from scratch trained using back propagation
 
 Scope
 -----
-Use sigmoid activations in every trainable layer and mean squared-error
+Use sigmoid hidden activations, sigmoid or linear outputs, and mean squared-error
 loss across the output neurons for one training example. Training uses one
 parameter update per example.
 
@@ -35,6 +35,7 @@ The input layer has no biases or deltas of its own.
 For i = 0, ..., K-1:
     z[i+1] = activations[i] @ weights[i] + biases[i]
     activations[i+1] = sigmoid(z[i+1])
+For a linear output, the final activation is z[K] itself.
 
 Here @ means matrix multiplication. Multiplication by a scalar or between
 same-shaped vectors is written with *. NumPy vector * vector is elementwise.
@@ -64,6 +65,9 @@ merely the derivative of sigmoid and not a change in a weight.
 
 Output layer:
     deltas[K-1] = (2 / m) * (activations[K] - t) * activations[K] * (1 - activations[K])
+
+For a linear output, omit the sigmoid factor:
+    deltas[K-1] = (2 / m) * (activations[K] - t)
 
 Hidden layers, for i = K-2, ..., 0:
     propagated = deltas[i+1] @ weights[i+1].T
@@ -99,7 +103,7 @@ FloatArray = NDArray[np.float64]
 # Because we need to store a lot of different types of data and associate between them, use a class
 class NeuralNetwork:
     """
-    A fully connected neural network with sigmoid activations and trainable biases.
+    A fully connected network with sigmoid hidden units and configurable outputs.
 
     Constructor-created arrays contain initial parameters and zero-filled caches.
     Those caches do not represent an actual forward/backward pass until they have been filled in
@@ -124,7 +128,8 @@ class NeuralNetwork:
             input_size: int = 2,
             hidden_sizes: Tuple[int, ...] = (2,2),
             output_size: int = 2,
-            seed: Optional[int] = None
+            seed: Optional[int] = None,
+            output_activation: str = "sigmoid"
         ) -> None:
         """
         Intialise parameters and caches. And validate the architecture.
@@ -134,6 +139,7 @@ class NeuralNetwork:
             hidden_sizes: Immutable tuple of hidden layer widths
             output_size: Positive number of output neurons
             seed: Optional nonnegative random seed for reproducable weights
+            output_activation: Sigmoid by default; linear for unrestricted regression.
 
         Weights are sampled uniformly from [0, 1).
         Biases, activations, deltas, and parameter gradients are initialised to 0.
@@ -154,6 +160,9 @@ class NeuralNetwork:
             if size <= 0:
                 raise ValueError("Every layer size must be positive.")
 
+        if output_activation not in ("sigmoid", "linear"):
+            raise ValueError("output_activation must be sigmoid or linear")
+        self.output_activation = output_activation
         self.layer_sizes = layer_sizes
 
         rng = np.random.default_rng(seed)
@@ -226,7 +235,11 @@ class NeuralNetwork:
 
         for i, weights in enumerate(self.weights):
             weighted_inputs = activation @ weights + self.biases[i]  # z
-            activation = self.sigmoid(weighted_inputs)  # a
+            # Linear regression outputs can represent negative and out-of-range radians.
+            if i == len(self.weights) - 1 and self.output_activation == "linear":
+                activation = weighted_inputs
+            else:
+                activation = self.sigmoid(weighted_inputs)  # a
 
             self.activations[i + 1] = activation
 
@@ -262,7 +275,11 @@ class NeuralNetwork:
 
             # dE/dz =        dE/da        *         da/dz
             # delta = activation_graident * activation_derivative
-            activation_derivative = self.sigmoid_derivative_from_activation(activation)
+            # The identity output's derivative is 1; hidden layers remain sigmoid.
+            activation_derivative = (
+                1.0 if i == len(self.weights) - 1 and self.output_activation == "linear"
+                else self.sigmoid_derivative_from_activation(activation)
+            )
             delta = activation_gradient * activation_derivative
             # For intuition of the above, if sigmoid is nearly flat at this neuron, chaning `z`
             # barely changes it activation. That small sigmoid derivative reduces how strongly
@@ -439,49 +456,50 @@ def create_phase_inputs(num_frames):
     ])
 
 
-def train_phase_network(gait_path, model_path, epochs=300):
-    """Train the existing NeuralNetwork on one GA gait and save its weights.
+def train_network(gait_path, model_path, epochs=5):
+    """Train on GA run archives in a directory.
 
-    The original API takes a .npy path and keeps the experiment's fixed settings:
-    5 -> 64 -> 24, learning rate 0.1, seed 42 and the requested epoch count.
-    Targets are actual same-frame GA angles. Scaling changes their units for
-    sigmoid and bounds the output domain; it does not prescribe a pose.
-    The returned epoch losses are plotted beside the saved model.
+    Keep the experiment's fixed settings:
+    5 -> 64 -> 24, learning rate 0.1 and the requested epoch count.
+    Targets and linear outputs are actual same-frame angles in radians.
+    No joint-limit scaling or clipping constrains the network's output.
+    Dataset MSE before training and after each epoch is plotted beside the model.
     """
     import pickle
+    from pathlib import Path
     from GA.gait_constants import (
-        MIN_JOINT_ANGLES, MAX_JOINT_ANGLES, NUM_FRAMES
+        NUM_FRAMES
     )
 
-    ga = np.load(gait_path, allow_pickle=False)
+    # Load gaits stored in `gait_path` and configure them to the right shape for training
+    gait_path = Path(gait_path)
+    if not gait_path.is_dir():
+        raise ValueError(f"Invalid gait path: {str(gait_path)} should be a directory containing training gaits.")
+    archives = sorted(gait_path.glob("run_*.npz"))
+    if not archives:
+        raise ValueError(f"No GA run_*.npz archives found in {gait_path}")
+    batches = []
+    for archive in archives:
+        with np.load(archive, allow_pickle=False) as run:
+            gaits = run["gaits"]
+            if gaits.ndim != 4 or gaits.shape[1:] != (NUM_FRAMES, 8, 3):
+                raise ValueError(f"Invalid GA gait shape: {gaits.shape}")
+            batches.append(gaits)
+    ga = np.concatenate(batches)
 
-    if ga.shape == (1, NUM_FRAMES, 8, 3):
-        ga = ga[0]
-    if ga.shape != (NUM_FRAMES, 8, 3):
-        raise ValueError(f"Invalid GA gait shape: {ga.shape}")
-
-    if (
-        not np.isfinite(ga).all()
-        or (ga < MIN_JOINT_ANGLES).any()
-        or (ga > MAX_JOINT_ANGLES).any()
-    ):
-        raise ValueError("Invalid GA joint angles")
-
-    inputs = create_phase_inputs(NUM_FRAMES)
-    targets = (
-        (ga - MIN_JOINT_ANGLES)
-        / (MAX_JOINT_ANGLES - MIN_JOINT_ANGLES)
-    ).reshape(NUM_FRAMES, 24)
+    inputs = np.tile(create_phase_inputs(NUM_FRAMES), (len(ga), 1))
+    if not np.isfinite(ga).all():
+        raise ValueError("Invalid GA joint angles: values must be finite")
+    targets = ga.reshape(-1, 24)
 
     network = NeuralNetwork(
         input_size=5,
         hidden_sizes=(64,),
         output_size=24,
-        seed=42,
+        output_activation="linear",
     )
 
-    # Use the same initialisation as our successful experiment
-    rng = np.random.default_rng(42)
+    rng = np.random.default_rng()
     for i, weights in enumerate(network.weights):
         fan_in, fan_out = weights.shape
         limit = np.sqrt(6 / (fan_in + fan_out))
@@ -489,11 +507,22 @@ def train_phase_network(gait_path, model_path, epochs=300):
             -limit, limit, weights.shape
         )
 
-    def report(epoch, mse):
-        if epoch == 1 or epoch % 50 == 0 or epoch == epochs:
-            print(f"Epoch {epoch}: MSE={mse:.8f}")
+    def measure_loss():
+        # All gaits share phase inputs: predict 300 poses once per fixed-weight snapshot.
+        predictions = np.array([network.feed_forward(x) for x in inputs[:NUM_FRAMES]])
+        return float(sum(
+            np.sum((predictions - gait.reshape(NUM_FRAMES, 24)) ** 2) for gait in ga
+        ) / targets.size)
 
-    losses = network.train_nn(
+    losses = []
+
+    def report(epoch, _online_mse):
+        mse = measure_loss()
+        losses.append(mse)
+        print(f"Epoch {epoch}: MSE={mse:.8f}", flush=True)
+
+    report(0, None)
+    network.train_nn(
         inputs,
         targets,
         epochs=epochs,
@@ -501,14 +530,12 @@ def train_phase_network(gait_path, model_path, epochs=300):
         on_epoch=report,
     )
 
-    # Save the model with its correct phase-based identity
+    # New identity prevents loading old scaled sigmoid outputs as raw radians.
     saved = {
-        "format": "phase_pose_v1",
+        "format": "phase_pose_linear_v1",
         "layer_sizes": network.layer_sizes,
         "weights": network.weights,
         "biases": network.biases,
-        "joint_minimums": MIN_JOINT_ANGLES,
-        "joint_maximums": MAX_JOINT_ANGLES,
         "num_frames": NUM_FRAMES,
     }
 
@@ -517,12 +544,12 @@ def train_phase_network(gait_path, model_path, epochs=300):
     with model_path.open("wb") as f:
         pickle.dump(saved, f)
 
-    # The coursework asks for a training-loss plot; reuse train_nn's recorded losses.
+    # Plot comparable dataset losses before training and after each complete epoch.
     import matplotlib.pyplot as plt
 
     figure, axis = plt.subplots()
-    axis.plot(range(1, len(losses) + 1), losses)
-    axis.set(xlabel="Epoch", ylabel="Mean squared error (scaled angles)")
+    axis.plot(range(len(losses)), losses, marker="o")
+    axis.set(xlabel="Epoch", ylabel="Mean squared error (radians squared)", yscale="log")
     figure.tight_layout()
     figure.savefig(model_path.parent / "training_loss.png")
     plt.close(figure)
@@ -531,16 +558,11 @@ def train_phase_network(gait_path, model_path, epochs=300):
     return network
 
 
-def load_phase_network(model_path):
-    """Load a trusted phase model using the original compatibility checks.
-
-    The original branch also accepted five-input files labelled next_pose_v1;
-    this compatibility is retained. A 25-input recursive model fails the existing
-    architecture check. Pickle can execute code: load only trusted files.
-    """
+def load_network(model_path):
+    """Load a trusted linear-output phase model"""
     import pickle
     from GA.gait_constants import (
-        MIN_JOINT_ANGLES, MAX_JOINT_ANGLES, NUM_FRAMES
+        NUM_FRAMES
     )
 
     # Only load models you created or trust
@@ -552,15 +574,7 @@ def load_phase_network(model_path):
     if (
         sizes[0] != 5 or sizes[-1] != 24
         or saved["num_frames"] != NUM_FRAMES
-        or saved.get("format") not in (
-            "phase_pose_v1", "next_pose_v1"
-        )
-        or not np.array_equal(
-            saved["joint_minimums"], MIN_JOINT_ANGLES
-        )
-        or not np.array_equal(
-            saved["joint_maximums"], MAX_JOINT_ANGLES
-        )
+        or saved.get("format") != "phase_pose_linear_v1"
     ):
         raise ValueError("Incompatible phase-based NN model")
 
@@ -568,7 +582,7 @@ def load_phase_network(model_path):
         input_size=5,
         hidden_sizes=sizes[1:-1],
         output_size=24,
-        seed=42,
+        output_activation="linear",
     )
 
     for name in ("weights", "biases"):
@@ -594,12 +608,11 @@ def generate_phase_gait(network):
     """Predict every frame independently from time, returning radians (300, 8, 3).
 
     Frame zero is also predicted. No starting pose or previous prediction is an
-    input, so pose errors cannot propagate through feedback. The same model
-    always produces one trajectory; it cannot adapt to disturbances. Sigmoid
-    and inverse scaling constrain angles to the configured GA joint range.
+    input, so pose errors cannot propagate through feedback. Outputs are
+    raw radians with no scaling, clipping or enforced joint limits.
     """
     from GA.gait_constants import (
-        MIN_JOINT_ANGLES, MAX_JOINT_ANGLES, NUM_FRAMES
+        NUM_FRAMES
     )
 
     inputs = create_phase_inputs(NUM_FRAMES)
@@ -611,149 +624,44 @@ def generate_phase_gait(network):
     if not np.isfinite(predictions).all():
         raise ValueError("NN produced invalid predictions")
 
-    normalised = predictions.reshape(NUM_FRAMES, 8, 3)
-
-    gait = (
-        MIN_JOINT_ANGLES
-        + normalised
-        * (MAX_JOINT_ANGLES - MIN_JOINT_ANGLES)
-    )
-
-    return gait
+    return predictions.reshape(NUM_FRAMES, 8, 3)
 
 
-def run_spider_gait(train=False):
-    """Original single-gait workflow: train/load, generate, score and animate.
+def main(train=False) -> int:
+    """Train from NN/data, or load the model and save and score one gait.
 
-    Uses ga_training_check.npy and nn_results/phase_experiment/phase_model.pkl.
-    Run python -m NN.NN --train to train; omit --train to use saved weights.
-    Training also saves training_loss.png beside the model.
+    Run python -m NN.NN --train to save NN/output/model.pkl and training_loss.png.
+    Omit --train to generate NN/output/generated_gait.npy from the saved model.
+    Use python -m GA.render_gait on that file to animate it separately.
     """
     from pathlib import Path
     from GA.GA import evaluate_fitness
-    from GA.render_gait import animate_gait
 
     root = Path(__file__).resolve().parent.parent
-    output = root / "nn_results/phase_experiment"
-    model_path = output / "phase_model.pkl"
-    gait_path = root / "ga_training_check.npy"
+    output = root / "NN/output/"
+    model_path = output / "model.pkl"
+    gait_path = root / "NN/data/"
 
     if train:
-        network = train_phase_network(
-            gait_path, model_path, epochs=300
-        )
-    else:
-        network = load_phase_network(model_path)
+        train_network(gait_path, model_path, epochs=2)
+        return 0
+
+    network = load_network(model_path)
 
     gait = generate_phase_gait(network)
 
     output.mkdir(parents=True, exist_ok=True)
-    np.save(output / "generated_gaits.npy", gait[None])
+    np.save(output / "generated_gait.npy", gait[None])
 
     fitness = float(evaluate_fitness(gait[None])[0])
-    movement = float(
-        np.ptp(gait[-50:], axis=0).mean()
-    )
+    movement = float(np.ptp(gait[-50:], axis=0).mean())
 
     print("\n--- NN RESULTS ---")
     print(f"Fitness: {fitness:.8f}")
     print(f"Last 50 frames movement: {movement:.8f}")
     print(f"Generated gait saved in: {output}")
-
-    animate_gait(gait)
-
-def main() -> int:
-    # Doing flower dataset as test
-
-    def _class_by_prediction(prediction: FloatArray) -> str:
-        indx = np.argmin(prediction)
-        match indx:
-            case 0:
-                return "Iris-setosa"
-            case 1:
-                return "Iris-versicolor"
-            case 2:
-                return "Iris-virginica"
-
-    # 1. Load dataset
-    species_by_encoding = {
-        "Iris-setosa": [1, 0, 0],
-        "Iris-versicolor": [0, 1, 0],
-        "Iris-virginica": [0, 0, 1]
-    }
-    training_data = []
-    training_targets = []
-    testing_data = []
-    testing_targets = []
-
-    proportion_training = 0.8
-
-    import csv
-    import random
-    with open ("iris.csv") as file:
-        reader = csv.reader(file)
-        for i, row in enumerate(reader):
-            if i == 0: continue  # Skip header row
-            if random.random() < proportion_training:
-                training_data.append(row[1:-1])
-                training_targets.append(species_by_encoding[row[-1]])
-            else:
-                testing_data.append(row[:-1])  # Include ID in testing data for print display
-                testing_targets.append(species_by_encoding[row[-1]])
-
-    training_data    = np.asarray(training_data, dtype=np.float64)
-    training_targets = np.asarray(training_targets, dtype=np.float64)
-    testing_data     = np.asarray(testing_data, dtype=np.float64)
-    testing_targets  = np.asarray(testing_targets, dtype=np.float64)
-
-    # 2. Define NN architecture
-    my_nn = NeuralNetwork(
-        input_size=4,
-        hidden_sizes=(6,),  # ~= (2/3 * input) + output  | > 2 * input
-        output_size=3
-    )
-
-    # 3. Train the network
-    print("Training network...")
-    average_loss_per_epoch = my_nn.train_nn(
-        inputs=training_data,
-        targets=training_targets,
-        epochs=150,
-        learning_rate=0.1
-    )
-
-    print(f"Average loss per epoch: {average_loss_per_epoch}")
-
-    # 3. Test using unseen examples
-    print("\nTesting network...")
-    error_sum = 0
-    num_wrong = 0
-    for i, test in enumerate(testing_data):
-        prediction = my_nn.feed_forward(test[1:])
-        error = my_nn.loss(targets=testing_targets[i], predictions=prediction)
-        error_sum += error
-
-        predicted_class = _class_by_prediction(prediction)
-        real_class = _class_by_prediction(testing_targets[i])
-        if is_wrong := predicted_class != real_class: num_wrong += 1
-        print(
-            f"Testing ID-{test[0]}: prediction = {prediction}; predicted_class = {predicted_class}"
-            f"{f'; real_class = {real_class}' if is_wrong else ''}"
-        )
-
-    average_error = error_sum / len(testing_data)
-    print(
-        f"Average error on tests: {average_error}; "
-        f"Accuracy %: {100 - (num_wrong / len(testing_data) * 100)}%"
-    )
-
-
     return 0
 
 if __name__ == "__main__":
     import sys
-
-    if "--iris" in sys.argv:
-        main()
-    else:
-        run_spider_gait(train="--train" in sys.argv)
+    sys.exit(main(train="--train" in sys.argv))

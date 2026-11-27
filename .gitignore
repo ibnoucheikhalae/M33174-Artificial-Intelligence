@@ -5,3 +5,5 @@ venv/
 *.pkl
 .mypy_cache/
 .pytest_cache/
+NN/output/
+NN/data/
