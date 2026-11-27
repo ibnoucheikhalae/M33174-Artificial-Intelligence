@@ -39,20 +39,17 @@ class TestPhaseNetwork(unittest.TestCase):
         np.testing.assert_allclose(inputs[-1], [1, 0, 1, 0, 1], atol=1e-14)
 
     def test_generate_phase_gait(self):
-        network = NeuralNetwork(5, (), 24, seed=1)
+        network = NeuralNetwork(5, (), 24, seed=1, output_activation="linear")
         network.weights[0][:] = 0
         network.biases[0][:] = 0
         network.weights[0][1, 0] = 2
         inputs = create_phase_inputs(300)
         predictions = np.array([network.feed_forward(x) for x in inputs])
-        expected = MIN_JOINT_ANGLES + predictions.reshape(300, 8, 3) * (
-            MAX_JOINT_ANGLES - MIN_JOINT_ANGLES
-        )
+        expected = predictions.reshape(300, 8, 3)
         np.testing.assert_array_equal(generate_phase_gait(network), expected)
         # Each frame uses its own phase, including frame zero; there is no seed pose.
         self.assertGreater(np.ptp(expected[:, 0, 0]), 0.1)
-        self.assertTrue((expected >= MIN_JOINT_ANGLES).all())
-        self.assertTrue((expected <= MAX_JOINT_ANGLES).all())
+        self.assertGreater(expected.max(), 1.0)
         network.weights[0][0, 0] = np.nan
         with self.assertRaises(ValueError):
             generate_phase_gait(network)
@@ -71,9 +68,11 @@ class TestPhaseNetwork(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as directory:
             folder = Path(directory)
-            gait_path, model_path = folder / "gait.npy", folder / "model.pkl"
-            for stored in (gait, gait[None]):
-                np.save(gait_path, stored)
+            gait_path, model_path = folder / "data", folder / "model.pkl"
+            gait_path.mkdir()
+            gait[:, 0, 1] = -3.0  # Raw targets may exceed the GA's assumed joint range.
+            for stored in (gait[None],):
+                np.savez(gait_path / "run_test.npz", gaits=stored)
                 with (
                     patch.object(NeuralNetwork, "train_nn", record_training),
                     redirect_stdout(io.StringIO()),
@@ -87,17 +86,14 @@ class TestPhaseNetwork(unittest.TestCase):
                 self.assertTrue(
                     (folder / "training_loss.png").read_bytes().startswith(b"\x89PNG")
                 )
-            expected = (
-                (gait - MIN_JOINT_ANGLES) / (MAX_JOINT_ANGLES - MIN_JOINT_ANGLES)
-            ).reshape(300, 24)
+            expected = gait.reshape(300, 24)
             for targets in seen_targets:
                 np.testing.assert_array_equal(targets, expected)
             for invalid in (
                 gait[:299],
                 np.full_like(gait, np.nan),
-                np.full_like(gait, 10),
             ):
-                np.save(gait_path, invalid)
+                np.savez(gait_path / "run_test.npz", gaits=invalid[None])
                 with self.subTest(shape=invalid.shape), self.assertRaises(ValueError):
                     train_network(gait_path, model_path, epochs=1)
 
@@ -132,9 +128,7 @@ class TestPhaseNetwork(unittest.TestCase):
             )
             inputs, targets = seen[0]
             np.testing.assert_array_equal(inputs, np.tile(create_phase_inputs(300), (3, 1)))
-            expected = ((gaits - MIN_JOINT_ANGLES) / (
-                MAX_JOINT_ANGLES - MIN_JOINT_ANGLES
-            )).reshape(3, 300, 24)
+            expected = gaits.reshape(3, 300, 24)
             # Archive filenames are random, so compare individuals without assuming order.
             self.assertEqual(targets.shape, (900, 24))
             self.assertEqual(
@@ -144,9 +138,9 @@ class TestPhaseNetwork(unittest.TestCase):
 
     def test_load_phase_network(self):
         """Preserve the original compatibility checks for saved models."""
-        network = NeuralNetwork(5, (), 24, seed=1)
+        network = NeuralNetwork(5, (), 24, seed=1, output_activation="linear")
         saved = {
-            "format": "phase_pose_v1",
+            "format": "phase_pose_linear_v1",
             "layer_sizes": network.layer_sizes,
             "weights": network.weights,
             "biases": network.biases,
@@ -159,6 +153,7 @@ class TestPhaseNetwork(unittest.TestCase):
             for change in (
                 {"layer_sizes": (25, 40, 24)},
                 {"num_frames": 299},
+                {"format": "phase_pose_v1"},
                 {"weights": []},
                 {"biases": [np.full(24, np.nan)]},
             ):
@@ -166,3 +161,32 @@ class TestPhaseNetwork(unittest.TestCase):
                     pickle.dump({**saved, **change}, file)
                 with self.subTest(change=change.keys()), self.assertRaises(ValueError):
                     load_network(path)
+
+
+class TestLinearOutput(unittest.TestCase):
+    def test_unbounded_outputs_and_sigmoid_default(self):
+        linear = NeuralNetwork(1, (), 2, seed=0, output_activation="linear")
+        linear.weights[0][:] = [[-4, 4]]
+        np.testing.assert_array_equal(linear.feed_forward(np.array([1.])), [-4, 4])
+        sigmoid = NeuralNetwork(1, (), 2, seed=0)
+        sigmoid.weights[0][:] = linear.weights[0]
+        self.assertTrue(((sigmoid.feed_forward(np.array([1.])) > 0) &
+                         (sigmoid.feed_forward(np.array([1.])) < 1)).all())
+
+    def test_linear_output_gradients(self):
+        network = NeuralNetwork(2, (3,), 2, seed=0, output_activation="linear")
+        x, target = np.array([-.3, .7]), np.array([-3., 4.])
+        network.feed_forward(x)
+        network.back_propagation(target)
+        for parameters, gradients in ((network.weights, network.weight_gradients),
+                                       (network.biases, network.bias_gradients)):
+            for parameter, gradient in zip(parameters, gradients):
+                expected = gradient.copy()
+                for index in np.ndindex(parameter.shape):
+                    original = parameter[index]
+                    parameter[index] = original + 1e-6
+                    plus = network.loss(target, network.feed_forward(x))
+                    parameter[index] = original - 1e-6
+                    minus = network.loss(target, network.feed_forward(x))
+                    parameter[index] = original
+                    self.assertAlmostEqual(expected[index], (plus-minus)/2e-6, places=7)

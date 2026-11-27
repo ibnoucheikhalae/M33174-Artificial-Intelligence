@@ -3,7 +3,7 @@ A Neural Network class from scratch trained using back propagation
 
 Scope
 -----
-Use sigmoid activations in every trainable layer and mean squared-error
+Use sigmoid hidden activations, sigmoid or linear outputs, and mean squared-error
 loss across the output neurons for one training example. Training uses one
 parameter update per example.
 
@@ -35,6 +35,7 @@ The input layer has no biases or deltas of its own.
 For i = 0, ..., K-1:
     z[i+1] = activations[i] @ weights[i] + biases[i]
     activations[i+1] = sigmoid(z[i+1])
+For a linear output, the final activation is z[K] itself.
 
 Here @ means matrix multiplication. Multiplication by a scalar or between
 same-shaped vectors is written with *. NumPy vector * vector is elementwise.
@@ -64,6 +65,9 @@ merely the derivative of sigmoid and not a change in a weight.
 
 Output layer:
     deltas[K-1] = (2 / m) * (activations[K] - t) * activations[K] * (1 - activations[K])
+
+For a linear output, omit the sigmoid factor:
+    deltas[K-1] = (2 / m) * (activations[K] - t)
 
 Hidden layers, for i = K-2, ..., 0:
     propagated = deltas[i+1] @ weights[i+1].T
@@ -99,7 +103,7 @@ FloatArray = NDArray[np.float64]
 # Because we need to store a lot of different types of data and associate between them, use a class
 class NeuralNetwork:
     """
-    A fully connected neural network with sigmoid activations and trainable biases.
+    A fully connected network with sigmoid hidden units and configurable outputs.
 
     Constructor-created arrays contain initial parameters and zero-filled caches.
     Those caches do not represent an actual forward/backward pass until they have been filled in
@@ -124,7 +128,8 @@ class NeuralNetwork:
             input_size: int = 2,
             hidden_sizes: Tuple[int, ...] = (2,2),
             output_size: int = 2,
-            seed: Optional[int] = None
+            seed: Optional[int] = None,
+            output_activation: str = "sigmoid"
         ) -> None:
         """
         Intialise parameters and caches. And validate the architecture.
@@ -134,6 +139,7 @@ class NeuralNetwork:
             hidden_sizes: Immutable tuple of hidden layer widths
             output_size: Positive number of output neurons
             seed: Optional nonnegative random seed for reproducable weights
+            output_activation: Sigmoid by default; linear for unrestricted regression.
 
         Weights are sampled uniformly from [0, 1).
         Biases, activations, deltas, and parameter gradients are initialised to 0.
@@ -154,6 +160,9 @@ class NeuralNetwork:
             if size <= 0:
                 raise ValueError("Every layer size must be positive.")
 
+        if output_activation not in ("sigmoid", "linear"):
+            raise ValueError("output_activation must be sigmoid or linear")
+        self.output_activation = output_activation
         self.layer_sizes = layer_sizes
 
         rng = np.random.default_rng(seed)
@@ -226,7 +235,11 @@ class NeuralNetwork:
 
         for i, weights in enumerate(self.weights):
             weighted_inputs = activation @ weights + self.biases[i]  # z
-            activation = self.sigmoid(weighted_inputs)  # a
+            # Linear regression outputs can represent negative and out-of-range radians.
+            if i == len(self.weights) - 1 and self.output_activation == "linear":
+                activation = weighted_inputs
+            else:
+                activation = self.sigmoid(weighted_inputs)  # a
 
             self.activations[i + 1] = activation
 
@@ -262,7 +275,11 @@ class NeuralNetwork:
 
             # dE/dz =        dE/da        *         da/dz
             # delta = activation_graident * activation_derivative
-            activation_derivative = self.sigmoid_derivative_from_activation(activation)
+            # The identity output's derivative is 1; hidden layers remain sigmoid.
+            activation_derivative = (
+                1.0 if i == len(self.weights) - 1 and self.output_activation == "linear"
+                else self.sigmoid_derivative_from_activation(activation)
+            )
             delta = activation_gradient * activation_derivative
             # For intuition of the above, if sigmoid is nearly flat at this neuron, chaning `z`
             # barely changes it activation. That small sigmoid derivative reduces how strongly
@@ -440,18 +457,18 @@ def create_phase_inputs(num_frames):
 
 
 def train_network(gait_path, model_path, epochs=100):
-    """Train on GA run archives in a directory, or one legacy .npy gait.
+    """Train on GA run archives in a directory.
 
     Keep the experiment's fixed settings:
-    5 -> 64 -> 24, learning rate 0.1, seed 42 and the requested epoch count.
-    Targets are actual same-frame GA angles. Scaling changes their units for
-    sigmoid and bounds the output domain; it does not prescribe a pose.
+    5 -> 64 -> 24, learning rate 0.1 and the requested epoch count.
+    Targets and linear outputs are actual same-frame angles in radians.
+    No joint-limit scaling or clipping constrains the network's output.
     The returned epoch losses are plotted beside the saved model.
     """
     import pickle
     from pathlib import Path
     from GA.gait_constants import (
-        MIN_JOINT_ANGLES, MAX_JOINT_ANGLES, NUM_FRAMES
+        NUM_FRAMES
     )
 
     # Load gaits stored in `gait_path` and configure them to the right shape for training
@@ -471,15 +488,15 @@ def train_network(gait_path, model_path, epochs=100):
     ga = np.concatenate(batches)
 
     inputs = np.tile(create_phase_inputs(NUM_FRAMES), (len(ga), 1))
-    targets = (
-        (ga - MIN_JOINT_ANGLES)
-        / (MAX_JOINT_ANGLES - MIN_JOINT_ANGLES)
-    ).reshape(-1, 24)
+    if not np.isfinite(ga).all():
+        raise ValueError("Invalid GA joint angles: values must be finite")
+    targets = ga.reshape(-1, 24)
 
     network = NeuralNetwork(
         input_size=5,
         hidden_sizes=(64,),
         output_size=24,
+        output_activation="linear",
     )
 
     rng = np.random.default_rng()
@@ -501,14 +518,12 @@ def train_network(gait_path, model_path, epochs=100):
         on_epoch=report,
     )
 
-    # Save the model with its correct phase-based identity
+    # New identity prevents loading old scaled sigmoid outputs as raw radians.
     saved = {
-        "format": "phase_pose_v1",
+        "format": "phase_pose_linear_v1",
         "layer_sizes": network.layer_sizes,
         "weights": network.weights,
         "biases": network.biases,
-        "joint_minimums": MIN_JOINT_ANGLES,
-        "joint_maximums": MAX_JOINT_ANGLES,
         "num_frames": NUM_FRAMES,
     }
 
@@ -522,7 +537,7 @@ def train_network(gait_path, model_path, epochs=100):
 
     figure, axis = plt.subplots()
     axis.plot(range(1, len(losses) + 1), losses)
-    axis.set(xlabel="Epoch", ylabel="Mean squared error (scaled angles)")
+    axis.set(xlabel="Epoch", ylabel="Mean squared error (radians squared)")
     figure.tight_layout()
     figure.savefig(model_path.parent / "training_loss.png")
     plt.close(figure)
@@ -532,15 +547,10 @@ def train_network(gait_path, model_path, epochs=100):
 
 
 def load_network(model_path):
-    """Load a trusted phase model using the original compatibility checks.
-
-    The original branch also accepted five-input files labelled next_pose_v1;
-    this compatibility is retained. A 25-input recursive model fails the existing
-    architecture check. Pickle can execute code: load only trusted files.
-    """
+    """Load a trusted linear-output phase model"""
     import pickle
     from GA.gait_constants import (
-        MIN_JOINT_ANGLES, MAX_JOINT_ANGLES, NUM_FRAMES
+        NUM_FRAMES
     )
 
     # Only load models you created or trust
@@ -552,15 +562,7 @@ def load_network(model_path):
     if (
         sizes[0] != 5 or sizes[-1] != 24
         or saved["num_frames"] != NUM_FRAMES
-        or saved.get("format") not in (
-            "phase_pose_v1", "next_pose_v1"
-        )
-        or not np.array_equal(
-            saved["joint_minimums"], MIN_JOINT_ANGLES
-        )
-        or not np.array_equal(
-            saved["joint_maximums"], MAX_JOINT_ANGLES
-        )
+        or saved.get("format") != "phase_pose_linear_v1"
     ):
         raise ValueError("Incompatible phase-based NN model")
 
@@ -568,7 +570,7 @@ def load_network(model_path):
         input_size=5,
         hidden_sizes=sizes[1:-1],
         output_size=24,
-        seed=42,
+        output_activation="linear",
     )
 
     for name in ("weights", "biases"):
@@ -594,12 +596,11 @@ def generate_phase_gait(network):
     """Predict every frame independently from time, returning radians (300, 8, 3).
 
     Frame zero is also predicted. No starting pose or previous prediction is an
-    input, so pose errors cannot propagate through feedback. The same model
-    always produces one trajectory; it cannot adapt to disturbances. Sigmoid
-    and inverse scaling constrain angles to the configured GA joint range.
+    input, so pose errors cannot propagate through feedback. Outputs are
+    raw radians with no scaling, clipping or enforced joint limits.
     """
     from GA.gait_constants import (
-        MIN_JOINT_ANGLES, MAX_JOINT_ANGLES, NUM_FRAMES
+        NUM_FRAMES
     )
 
     inputs = create_phase_inputs(NUM_FRAMES)
@@ -611,15 +612,7 @@ def generate_phase_gait(network):
     if not np.isfinite(predictions).all():
         raise ValueError("NN produced invalid predictions")
 
-    normalised = predictions.reshape(NUM_FRAMES, 8, 3)
-
-    gait = (
-        MIN_JOINT_ANGLES
-        + normalised
-        * (MAX_JOINT_ANGLES - MIN_JOINT_ANGLES)
-    )
-
-    return gait
+    return predictions.reshape(NUM_FRAMES, 8, 3)
 
 
 def main(train=False) -> int:

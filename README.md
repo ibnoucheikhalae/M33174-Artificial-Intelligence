@@ -303,49 +303,22 @@ Generate all 300 poses independently from their time features
 
 #### Architecture and learning
 
-The default network is **5 → 64 → 24**: five inputs, one hidden layer with 64 neurons,
-and one output for each joint in leg-major order L1, L2, L3, L4, R4, R3, R2, R1.
-It has 1,944 trainable weights and biases. The 64-neuron width is the starting choice
-from the phase experiment, not a claim that this is the optimal width.
+The default network is **5 → 64 → 24**: five inputs, one hidden layer with 64 neurons, and one output for each joint in leg-major order L1, L2, L3, L4, R4, R3, R2, R1.
+It has 1,944 trainable weights and biases.
 
-The original phase implementation in `NN/NN.py` uses sigmoid in both trainable layers. Its output is restricted to 0–1,
-whereas the targets contain negative and positive radians. We therefore change
-units using the GA model's joint-limit constants:
+The 64 neuron width was determined through experimentation. We tried widths 16, 32, 64, and 128. 64 and 128 had comparible losses at epoch 300, whilst 16 and 32 were both lower. We therefore settled for 64.
 
-```text
-scaled_angle = (angle - minimum) / (maximum - minimum)
-angle = minimum + scaled_angle * (maximum - minimum)
-```
+The `NeuralNetwork` implementation model uses **sigmoid hidden units and a linear output layer** (`a = z`).
+We chose linear outputs because joint angles are continuous, signed targets: the network can predict radians directly without min/max scaling or fixed output bounds.
+The output derivative is 1, avoiding output-activation saturation during MSE training.
+The sigmoid hidden layer still learns a nonlinear mapping from phase to pose.
 
-For a hip range of -1.57 to +1.57 radians, -1.57 becomes 0, zero becomes 0.5,
-and +1.57 becomes 1. This conversion is reversible. It does not fix a joint at
-one angle or tell the network which pose to produce; the GA data supplies that.
-The limits are assumptions inherited from `GA/gait_constants.py`, not quantities
-the network has discovered or independent proof of the robot's physical limits.
-
-**Does this constrain the network? Yes.** Sigmoid followed by inverse scaling
-restricts each predicted angle to the configured interval. The generator applies
-the inverse scale directly, without an extra clipping step.
-Loading rejects training examples outside the interval. Thus this workflow is
-supervised approximation of GA gaits within a chosen output range, rather than an
-unrestricted search over all angles. This differs deliberately from the GA's
-penalty-based search, which permits invalid candidates and scores them.
-
-We retain this representation to use the existing sigmoid network and express the
-chosen valid-angle domain directly. It is not compulsory for neural regression.
-A linear output layer with MSE can instead predict unrestricted real-valued angles,
-with optional standardisation and a penalty or evaluation metric for violations.
-Goodfellow, Bengio and Courville (2016), section 6.2.2.1, describe linear outputs
-for regression. That alternative would require changing the output activation and
-its backpropagation derivative, then comparing results; simply removing scaling
-would leave sigmoid unable to represent negative radians.
-([Goodfellow et al., 2016](https://www.deeplearningbook.org/contents/mlp.html).)
-Files and rendered gaits remain in radians throughout.
+Scaling by the dataset's minimum and maximum with sigmoid would still bound predictions. GA poses remain the targets; joint limits affect GA fitness but donot constrain NN outputs.
 
 Training uses the team's generic `NeuralNetwork` class in `NN/NN.py`: mean squared
-error across the 24 scaled outputs, backpropagation, and stochastic gradient descent
+error across the 24 radian outputs, backpropagation, and stochastic gradient descent
 with an update after each frame example. The default learning rate is 0.1 and the
-default run is 300 epochs. An epoch presents every saved gait in frame order;
+default run is 100 epochs. An epoch presents every saved gait in frame order;
 reported loss is the mean measured during those updates. Xavier-uniform initialisation
 centres the weights with the aim of reducing initial saturation, following
 [Glorot and Bengio (2010)](https://proceedings.mlr.press/v9/glorot10a.html).
@@ -378,22 +351,22 @@ generalisation, reserve independent GA runs for validation and final testing.
 
 The workflow writes these files under `NN/output/`:
 
-- `model.pkl`: architecture, weights, biases, joint limits and phase-format identity.
-- `training_loss.png`: mean scaled-angle training MSE by epoch.
+- `model.pkl`: architecture, weights, biases and the `phase_pose_linear_v1` format identity.
+- `training_loss.png`: mean training MSE in radians squared by epoch.
 - `generated_gait.npy`: one generated gait, shape `(1, 300, 8, 3)`, in radians.
 
 The existing Python interface uses the same functions as the command-line workflow:
 
 ```python
 from pathlib import Path
-from NN.NN import generate_phase_gait, load_phase_network
+from NN.NN import generate_phase_gait, load_network
 
-network = load_phase_network(Path("NN/output/model.pkl"))
+network = load_network(Path("NN/output/model.pkl"))
 gait = generate_phase_gait(network)  # (300, 8, 3), radians; no seed pose needed
 ```
 
-Only load trusted pickle models. Original phase models remain compatible;
-25-input recursive models must be retrained. The old recursive template and
+Only load trusted pickle models. Older scaled-output phase models and
+25-input recursive models must be retrained for the linear-output format. The old recursive template and
 standalone experiment scripts have been removed so there is one gait workflow.
 The generic `NeuralNetwork` class and the phase functions retain their existing APIs.
 
