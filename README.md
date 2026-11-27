@@ -250,8 +250,7 @@ Generation prints fitness and movement scores; the separate rendering command op
 
 #### What the five inputs mean
 
-The network answers: **“At this point in the animation, what should the spider's
-24 joint angles be?”** It predicts every pose directly, including frame zero.
+The network answers: **“At this point in the animation, what should the spider's 24 joint angles be?”** It predicts every pose directly, including frame zero.
 It needs no starting pose, and one prediction is never fed into the next.
 
 For frame `f` in `0..299`, let `t = f / 299`. Its five inputs are:
@@ -262,33 +261,15 @@ For frame `f` in `0..299`, let `t = f / 299`. Its five inputs are:
 | `sin(2πt)`, `cos(2πt)` | Position around one complete cycle |
 | `sin(4πt)`, `cos(4πt)` | Position around a cycle that repeats twice |
 
-All five inputs are calculated from the frame number. They are different ways of
-describing time, much like elapsed time together with the positions of clock hands.
-A sine/cosine pair distinguishes positions that a sine value alone cannot distinguish.
-These features offer a useful representation of periodic patterns; their benefit
-for this dataset still needs a controlled comparison against time alone.
+**Why use more than `t`?** Time alone tells the network where it is in the animation, but a steadily increasing number does not directly show the repeated back-and-forth movement of a leg. The network could learn that movement from `t` alone, but supplying sine and cosine gives it repeating shapes to work with, so it can spend more of its learning on how those shapes relate to the GA joint angles. For example, a joint that swings forwards and then backwards has a rise-and-fall pattern that a sine wave already resembles.
 
-**Why this encoding?** Tancik et al. (2020) study sinusoidal input mappings for
-learning functions of low-dimensional coordinates with MLPs. Their work supports
-using Fourier features as input representations; it does not establish our exact
-encoding as optimal for gaits. We use the first two harmonics as a compact basis:
-one cycle expresses the whole animation's rhythm, while two cycles can describe
-variation that repeats twice within it. This is our modelling choice, not a claim
-that every joint must move at either frequency. Adding raw `t` retains elapsed
-progress and distinguishes the start from the end. Kazemi et al. (2019) similarly
-combine non-periodic and periodic time components in Time2Vec, although they learn
-the periodic parameters; our encoding keeps them fixed.
-([Tancik et al., 2020](https://arxiv.org/abs/2006.10739);
-[Kazemi et al., 2019](https://arxiv.org/abs/1907.05321).)
+To build intuitition, we can think of `t` as a stopwatch and each sine/cosine pair as the position of a clock hand. One hand goes around once during the animation; the other goes around twice. Sine and cosine give the hand's vertical and horizontal positions. Both are useful because the same vertical position occurs on either side of the clock face; the horizontal position tells those points apart. Keeping `t` also distinguishes the start from the end, when both hands have returned to their starting positions. These sine/cosine inputs are called Fourier features.
 
-Both circular pairs return to the same position at the endpoints. Their inclusion
-does not supply new information beyond `t`; it changes how that information is
-presented to the network. The appropriate follow-up is a validation comparison of
-`t` alone, `t` plus one circular pair, and our five-feature encoding.
+This idea is not ours. [Tancik et al. (2020)](https://proceedings.neurips.cc/paper_files/paper/2020/hash/55053683268957697aa39fba6f231c68-Abstract.html) show that Fourier features can help networks learn functions that vary rapidly with their inputs. [Time2Vec (Kazemi et al., 2019)](https://arxiv.org/abs/1907.05321) also combines steady progress with repeating time features. These papers motivated our choice to try this method when using just `t` wasn't giving us the results we wanted. Comparitive results showed that using the fourier features input system decreased our error by roughly 6x at epoch 300.
 
-**The sine and cosine values are not the target joint angles.** The target for
-frame 75 is the GA gait's actual pose at frame 75. The target for frame 76 is its
-actual pose at frame 76. The input features supply useful periodic building blocks;
+Please note that **the sine and cosine values are not the target joint angles.** The target for
+frame 75 is the GA gait's actual pose at frame 75, the target for frame 76 is its
+actual pose at frame 76, etc. The input features supply useful periodic building blocks;
 the learned weights determine how those features map to the evolved gait.
 
 ```text
@@ -313,39 +294,25 @@ We chose linear outputs because joint angles are continuous, signed targets: the
 The output derivative is 1, avoiding output-activation saturation during MSE training.
 The sigmoid hidden layer still learns a nonlinear mapping from phase to pose.
 
-Scaling by the dataset's minimum and maximum with sigmoid would still bound predictions. GA poses remain the targets; joint limits affect GA fitness but donot constrain NN outputs.
-
-Training uses the team's generic `NeuralNetwork` class in `NN/NN.py`: mean squared
-error across the 24 radian outputs, backpropagation, and stochastic gradient descent
-with an update after each frame example. The default learning rate is 0.1 and the
-default run is 100 epochs. An epoch presents every saved gait in frame order;
-reported loss is the mean measured during those updates. Xavier-uniform initialisation
-centres the weights with the aim of reducing initial saturation, following
-[Glorot and Bengio (2010)](https://proceedings.mlr.press/v9/glorot10a.html).
-This does not establish sigmoid as the best hidden activation. Biases start at zero.
-Each gait contributes 300 same-frame examples, including both endpoints.
+Training uses the team's generic `NeuralNetwork` class in `NN/NN.py`: mean squared error (MSE) across the 24 radian outputs, backpropagation, and gradient descent with an update after each frame example.
+The default learning rate is 0.1 and the default run is **5 epochs**.
+An epoch presents every saved gait in frame order. The loss plot (logarithmic y-axis) and console show
+dataset MSE before training (epoch 0) and after each completed epoch, using fixed
+weights at every measurement so the 0→1 improvement is directly comparable.
+Xavier-uniform initialisation centres the weights with the aim of reducing initial saturation, following [Glorot and Bengio (2010)](https://proceedings.mlr.press/v9/glorot10a.html).
+Biases start at zero.
 
 #### Evaluation and limitations
-
-This workflow trains on all saved GA gaits: its loss measures reconstruction
-of those gaits, rather than held-out generalisation. It prints the generated gait's
-GA fitness and the mean per-joint range of motion over its last 50 frames.
+This workflow trains on all saved GA gaits: its loss measures reconstruction of those gaits, rather than held-out generalisation. It prints the generated gait's GA fitness and the mean per-joint range of motion over its last 50 frames.
 Inspect the loss curve and animation together; low angle error or legal joint
 limits alone does not prove effective walking, and GA fitness is not a substitute
 for simulator measurements.
 
-A time-only network generates **one trajectory**. It cannot choose between gait
-styles or adapt to disturbances. Training on multiple gaits with the
-same time inputs encourages their mean pose at each frame, which might
-be ineffective if their timing or styles differ. Separate models or additional
-conditioning would be needed for distinct gait families. Squared-error regression
-and its conditional-mean interpretation are discussed by
-[Goodfellow et al. (2016)](https://www.deeplearningbook.org/contents/mlp.html).
+With a test 3,616-gait archive, one epoch already makes **1,084,800 weight updates**. Therefore, learning is fast -- few epochs are needed. We therefore default to 5 epochs of training.
+In the inspected one-epoch testing model, fitness rose from **1.56123** for the mean GA trajectory to **1.99450**. About **97% of this gain** came from a smaller acceleration penalty: the NN smoothed out jitter while largely preserving stepping. 
 
-The periodic features do not force the first and last poses to match, because raw
-`t` distinguishes the endpoints. A seamless loop needs explicit evaluation and,
-if necessary, a suitable training objective. Before tuning or making claims about
-generalisation, reserve independent GA runs for validation and final testing.
+A time-only network generates **one trajectory**. It cannot choose between gait styles or adapt to disturbances. Training on multiple gaits with the same time inputs encourages their mean pose at each frame, which might be ineffective if their timing or styles differ.
+Separate models or additional conditioning would be needed for distinct gait families.
 
 #### Saved outputs and generation
 
@@ -355,57 +322,28 @@ The workflow writes these files under `NN/output/`:
 - `training_loss.png`: mean training MSE in radians squared by epoch.
 - `generated_gait.npy`: one generated gait, shape `(1, 300, 8, 3)`, in radians.
 
-The existing Python interface uses the same functions as the command-line workflow:
-
-```python
-from pathlib import Path
-from NN.NN import generate_phase_gait, load_network
-
-network = load_network(Path("NN/output/model.pkl"))
-gait = generate_phase_gait(network)  # (300, 8, 3), radians; no seed pose needed
-```
-
-Only load trusted pickle models. Older scaled-output phase models and
-25-input recursive models must be retrained for the linear-output format. The old recursive template and
-standalone experiment scripts have been removed so there is one gait workflow.
-The generic `NeuralNetwork` class and the phase functions retain their existing APIs.
-
 To render the saved output separately:
 
 ```bash
 python -m GA.render_gait NN/output/generated_gait.npy
 ```
 
-The renderer opens a looping animation at a target 30 FPS. Close its window to stop.
-It recomputes fitness using the current GA implementation; this may differ from
-previously recorded scores. Interactive rendering needs a GUI Matplotlib backend.
-`MPLBACKEND=Agg` is suitable for headless training and tests only.
-
 ### 3. How we got here
 
 #### The previous idea: predict the next pose
 
-Our first design used **25 → 40 → 24**: the current 24 joint angles plus normalised
-frame number as inputs, and the next pose as the target. It was trained on true
-GA poses. To generate 300 frames, we supplied a starting pose and repeatedly fed
-each predicted pose back into the network. This seemed useful because it could
-condition the next prediction on the current configuration.
+Our first design used **25 → 40 → 24**: the current 24 joint angles plus normalised frame number as inputs, and the next pose as the target. It was trained on true GA poses.
+To generate 300 frames, we supplied a starting pose and repeatedly fed each predicted pose back into the network. This seemed useful because it could condition the next prediction on the current configuration.
 
-The difficulty was the change in inputs at generation time: the network then saw
-its own imperfect predictions rather than the true poses used during training.
-Errors could influence later predictions. This training/inference mismatch is
-also discussed by [Bengio et al. (2015)](https://arxiv.org/abs/1506.03099) for
-sequence models. Our network was a feedforward model called recursively, not an
-RNN with a learned hidden state, but it encountered the same type of mismatch.
+The difficulty was the change in inputs at generation time: the network then saw its own imperfect predictions rather than the true poses used during training.
+Errors could influence later predictions -- the nature of the feedback mechanism meant that errors accumulated.
 
 #### Why we replaced it for this task
 
-We tested both complete-run train/test assignments using the two supplied GA
-archives (3,469 and 2,419 individuals). In each direction we sampled 16 training
-gaits and 32 testing gaits, keeping runs separate. Training used learning rate
-0.1 and seeds 7, 42 and 123 for 100 epochs; seed 42 continued to 300 epochs.
-These are sampled exploratory results, not full-dataset training or independent
-confidence intervals. At 300 epochs, the results were:
+We tested both complete-run train/test assignments using two generated GA archives (3,469 and 2,419 individuals).
+In each direction we sampled 16 training gaits and 32 testing gaits, keeping runs separate.
+Training used learning rate 0.1 and 100 epochs for 3 different seeds; one seed continued to 300 epochs.
+At 300 epochs, the results were:
 
 | Train/test direction | One-step RMSE using true previous poses | Recursive generation RMSE |
 | --- | ---: | ---: |
@@ -413,38 +351,19 @@ confidence intervals. At 300 epochs, the results were:
 | Run `3c48185f…` → run `0314dcd3…` | 0.01193 rad | 0.13507 rad |
 
 Errors cover frames 1–299 and all joints, excluding the supplied seed pose.
-At 100 epochs, recursive error was already 4.4–4.7 times the one-step error across
-the six fits; at 300 epochs it was about 11 times larger. Longer training improved
-one-step predictions but worsened generation. Supplying a true pose every ten
-predictions reduced the 300-epoch generation error by about 81%, supporting
-feedback as a substantial source of error. Those true-pose resets were a diagnostic,
-not a solution available during independent generation.
+At 100 epochs, recursive error was already 4.4–4.7 times the one-step error across the six fits; at 300 epochs it was about 11 times larger.
+Longer training improved one-step predictions but worsened generation.
+Supplying a true pose every ten predictions reduced the 300-epoch generation error by about 81%, supporting feedback as a substantial source of error.
 
-We therefore rejected recursive pose prediction **for this fixed-trajectory task**
-and chose direct phase-to-pose prediction. A frame prediction no longer depends
-on earlier predicted angles, removing that route for cumulative error. The
-single-gait phase experiment gave held-out pose RMSE of 0.02784–0.02809 radians.
-Its training budget and architecture differed, so this is supporting evidence,
-not a controlled proof that phase models always outperform transition models.
-
-We did not conclude that every divergent trajectory was ineffective: some
-100-epoch recursive gaits scored above the GA references, while the 300-epoch
-ones scored below. Those fitness values used main's scoring function at the time,
-which differs from this branch's current scoring function. Nor do these results demonstrate broad generalisation: the
-mean training trajectory baseline reached about 0.01046 radians, suggesting the
-two runs cover a narrow aligned gait family. More independent runs, a validation
-set and simulator measurements are needed before claiming a general controller.
-
-These measurements describe the earlier comparison experiment; the current
-phase entry point does not implement the rejected predictor. Removing feedback
-does not remove approximation
-error, guarantee cyclic continuity or provide response to physical disturbances.
+We therefore rejected recursive pose prediction for this fixed-trajectory task and chose direct phase-to-pose prediction.
+A frame prediction no longer depends on earlier predicted angles, removing that route for cumulative error.
+The single-gait phase experiment gave held-out pose RMSE of 0.02784–0.02809 radians.
 
 ### 4. References
 
 - Tancik, M. et al. (2020). *Fourier Features Let Networks Learn High Frequency
   Functions in Low Dimensional Domains*. NeurIPS 33.
-  [Paper](https://arxiv.org/abs/2006.10739).
+  [Paper](https://proceedings.neurips.cc/paper_files/paper/2020/hash/55053683268957697aa39fba6f231c68-Abstract.html).
 - Kazemi, S. M. et al. (2019). *Time2Vec: Learning a Vector Representation of Time*.
   arXiv:1907.05321. [Paper](https://arxiv.org/abs/1907.05321).
 - Goodfellow, I., Bengio, Y. and Courville, A. (2016). *Deep Learning*, chapter 6.
